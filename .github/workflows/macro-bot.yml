@@ -1,0 +1,38 @@
+name: Macro Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Chạy mỗi 30 phút
+    - cron: "*/30 * * * *"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Tuỳ chọn
+          LOOKBACK_DAYS: "30"
+          SCAN_PER_FEED: "200"
+          MAX_SEND_PER_RUN: "5"
+          GENAI_MODEL: "gemma-3-27b-it"
+        run: |
+          python macro_bot.py
