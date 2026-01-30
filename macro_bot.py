@@ -23,11 +23,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()  # dạng số, string ok
 
-# Google News RSS sources (dùng search + site:domain)
+# Google News RSS sources (dùng search + site:domain). Cafef ưu tiên đầu.
 GOOGLE_SOURCES = [
+    "cafef.vn",
     "vietstock.vn",
     "vneconomy.vn",
-    "cafef.vn",
     "ndh.vn",
 ]
 
@@ -54,12 +54,16 @@ STOCKS = [
 # ================= CHẾ ĐỘ CHẠY / CHỐNG SPAM =================
 # Quét tin trong N ngày gần nhất (mặc định 30)
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "30"))
+# Chỉ gửi tin trong N ngày gần nhất (mặc định 3) — chỉ cào tin mới
+RECENT_DAYS = int(os.getenv("RECENT_DAYS", "3"))
 # Quét sâu N bài gần nhất trên mỗi RSS (mặc định 200)
 SCAN_PER_FEED = int(os.getenv("SCAN_PER_FEED", "200"))
 # Giới hạn số tin gửi trong mỗi lần chạy (mặc định 5) để chạy thử 1 tháng không spam
 MAX_SEND_PER_RUN = int(os.getenv("MAX_SEND_PER_RUN", "5"))
 # Nếu đặt DRY_RUN=1 thì chỉ in ra, không gửi Telegram
 DRY_RUN = os.getenv("DRY_RUN", "0").strip() == "1"
+# Nếu đặt ALWAYS_NOTIFY_NO_NEWS=1 thì khi không có tin mới vẫn gửi 1 thông báo (mặc định bật)
+ALWAYS_NOTIFY_NO_NEWS = os.getenv("ALWAYS_NOTIFY_NO_NEWS", "1").strip() == "1"
 
 # ================= THIẾT LẬP GEMINI / GEMMA 3 =================
 # Mặc định dùng Gemma 3 bản mạnh nhất hiện tại (27B, instruction-tuned).
@@ -95,8 +99,11 @@ def normalize_text(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip()).lower()
 
 def strip_html(s: str) -> str:
-    # RSS snippet thường là HTML
-    return re.sub(r"<[^>]+>", " ", s or "")
+    # RSS snippet thường là HTML; dọn cả &nbsp; và entity
+    s = s or ""
+    s = re.sub(r"<[^>]+>", " ", s)
+    s = s.replace("&nbsp;", " ").replace("\xa0", " ")
+    return re.sub(r"\s+", " ", s).strip()
 
 def strip_accents(s: str) -> str:
     s = unicodedata.normalize("NFKD", s or "")
@@ -142,7 +149,7 @@ def fetch_full_article(link: str, max_chars: int = 8000) -> str:
     try:
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Thử một số selector phổ biến cho báo VN
+        # Thử một số selector phổ biến cho báo VN (cafef, vietstock, vneconomy...)
         candidates = [
             ".detail__content",
             ".ArticleContent",
@@ -150,6 +157,9 @@ def fetch_full_article(link: str, max_chars: int = 8000) -> str:
             ".article-body",
             ".content-detail",
             ".article-content",
+            ".DetailContent",
+            ".detail-content",
+            "article .content",
             "article",
         ]
         text = ""
@@ -170,6 +180,22 @@ def fetch_full_article(link: str, max_chars: int = 8000) -> str:
     except Exception as e:
         print(f"Lỗi parse bài báo: {e}")
         return ""
+def snippet_adds_value(title: str, snippet: str) -> bool:
+    """Trả về True nếu snippet thực sự bổ sung thông tin so với tiêu đề (tránh gửi trùng)."""
+    if not (snippet and snippet.strip()):
+        return False
+    t = normalize_text(title)
+    s = normalize_text(strip_html(snippet))
+    if not s or s == t:
+        return False
+    # Nếu snippet chỉ là tiêu đề + vài từ (ví dụ nguồn) thì coi như trùng
+    if t in s and len(s) - len(t) < 25:
+        return False
+    if s in t:
+        return False
+    # Snippet có nội dung khác đáng kể
+    return len(s) > len(t) + 20
+
 def fingerprint(title: str, summary: str) -> str:
     # Dedup theo title + snippet (chuẩn hoá) để nhiều báo đăng giống nhau chỉ gửi 1 lần
     t = normalize_text(title)
@@ -216,24 +242,24 @@ def is_stock_news(title: str, stock_cfg: dict, summary: str = "") -> bool:
 
     return False
 
+def get_entry_datetime(entry) -> datetime | None:
+    """Trả về datetime bài đăng (UTC), None nếu không có."""
+    try:
+        if hasattr(entry, "published_parsed") and entry.published_parsed:
+            t = entry.published_parsed
+            return datetime(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+        return None
+    except Exception:
+        return None
+
 def is_within_days(entry, days: int) -> bool:
     try:
-        # Lấy thời gian từ bài viết (struct_time)
-        if hasattr(entry, 'published_parsed'):
-            published_time = entry.published_parsed
-            pub_dt = datetime(
-                published_time.tm_year,
-                published_time.tm_mon,
-                published_time.tm_mday,
-                published_time.tm_hour,
-                published_time.tm_min,
-                published_time.tm_sec,
-            )
-            cutoff = datetime.now() - timedelta(days=days)
-            return pub_dt >= cutoff
-        # Nếu không có published_parsed, vẫn cho qua để không bỏ lỡ (nhưng sẽ dedup)
-        return True
-    except:
+        pub_dt = get_entry_datetime(entry)
+        if pub_dt is None:
+            return True
+        cutoff = datetime.now() - timedelta(days=days)
+        return pub_dt >= cutoff
+    except Exception:
         return True
 
 def build_google_queries(stock_cfg: dict) -> list:
@@ -279,7 +305,7 @@ def fetch_google_news(query: str, max_items: int) -> list:
     return feed.entries[:max_items]
 
 def process_news():
-    print(f"--- BẮT ĐẦU QUÉT TIN (LOOKBACK {LOOKBACK_DAYS} NGÀY): {datetime.now().strftime('%d/%m/%Y')} ---")
+    print(f"--- BẮT ĐẦU QUÉT TIN (chỉ gửi tin trong {RECENT_DAYS} ngày gần nhất): {datetime.now().strftime('%d/%m/%Y')} ---")
     count = 0
     if not model:
         print("Thiếu GEMINI_API_KEY. Hãy set GEMINI_API_KEY để bật phân tích AI.")
@@ -297,9 +323,17 @@ def process_news():
         for q in queries:
             print(f"Dang tim: {q} ...")
             entries = fetch_google_news(q, max_items=SCAN_PER_FEED)
+            # Sắp xếp tin mới nhất trước để ưu tiên gửi tin mới
+            def _sort_key(e):
+                dt = get_entry_datetime(e)
+                return dt if dt else datetime.min
+            entries = sorted(entries, key=_sort_key, reverse=True)
 
             for entry in entries:
                 if not is_within_days(entry, LOOKBACK_DAYS):
+                    continue
+                # Chỉ gửi tin trong RECENT_DAYS (tin thực sự mới)
+                if not is_within_days(entry, RECENT_DAYS):
                     continue
 
                 title = entry.title
@@ -345,13 +379,12 @@ Yêu cầu output (Tiếng Việt, ngắn gọn, rõ ràng):
                     analysis = response.text.strip()
                     seen_fp.add(fp)
 
-                    msg = (
-                        f"🔔 TIN CỔ PHIẾU {symbol}\n\n"
-                        f"{title}\n\n"
-                        f"Snippet: {strip_html(summary).strip()[:280]}\n\n"
-                        f"{analysis}\n\n"
-                        f"Xem gốc: {link}"
-                    )
+                    # Chỉ thêm snippet khi khác tiêu đề để tránh tin trùng lặp
+                    body_lines = [f"🔔 TIN CỔ PHIẾU {symbol}\n", title.strip()]
+                    if snippet_adds_value(title, summary):
+                        body_lines.append("\nSnippet: " + strip_html(summary).strip()[:280])
+                    body_lines.append(f"\n\n{analysis}\n\nXem gốc: {link}")
+                    msg = "\n".join(body_lines)
                     send_telegram(msg)
                     count += 1
                     time.sleep(3)
@@ -366,7 +399,13 @@ Yêu cầu output (Tiếng Việt, ngắn gọn, rõ ràng):
                 break
 
     if count == 0:
-        print(f"Không có tin cổ phiếu nào trong {LOOKBACK_DAYS} ngày gần nhất (theo bộ lọc hiện tại).")
+        msg = f"ℹ️ Không có tin mới (trong {RECENT_DAYS} ngày gần nhất) — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        print(msg)
+        if ALWAYS_NOTIFY_NO_NEWS:
+            try:
+                send_telegram(msg)
+            except Exception as e:
+                print(f"Lỗi gửi Telegram (no-news): {e}")
     else:
         print(f"Đã gửi {count} tin.")
 

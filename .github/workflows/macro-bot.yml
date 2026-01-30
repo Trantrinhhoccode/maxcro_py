@@ -3,8 +3,9 @@ name: Macro Bot
 on:
   workflow_dispatch:
   schedule:
-    # Chạy mỗi 30 phút
-    - cron: "*/30 * * * *"
+    # Giờ VN (UTC+7): 09:00 và 18:00
+    # GitHub cron dùng UTC => 09:00 VN = 02:00 UTC, 18:00 VN = 11:00 UTC
+    - cron: "0 2,11 * * *"
 
 jobs:
   run:
@@ -31,6 +32,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # Tuỳ chọn
           LOOKBACK_DAYS: "30"
+          RECENT_DAYS: "3"
           SCAN_PER_FEED: "200"
           MAX_SEND_PER_RUN: "5"
           GENAI_MODEL: "gemma-3-27b-it"
