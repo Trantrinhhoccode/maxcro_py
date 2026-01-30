@@ -5,6 +5,7 @@ import os
 import re
 import hashlib
 import unicodedata
+import json
 from datetime import datetime, date, timedelta
 from urllib.parse import quote_plus
 try:
@@ -205,6 +206,66 @@ def fingerprint(title: str, summary: str) -> str:
     base = re.sub(r"\s+", " ", base).strip()
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
+# File lưu tin đã gửi (persistent giữa các lần chạy)
+SENT_NEWS_FILE = "sent_news.json"
+
+def load_sent_fingerprints() -> dict:
+    """Load danh sách fingerprints đã gửi từ file."""
+    if not os.path.exists(SENT_NEWS_FILE):
+        return {}
+    try:
+        with open(SENT_NEWS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("fingerprints", {})
+    except Exception as e:
+        print(f"Lỗi đọc file {SENT_NEWS_FILE}: {e}")
+        return {}
+
+def save_sent_fingerprint(fp: str):
+    """Lưu fingerprint đã gửi vào file."""
+    try:
+        if os.path.exists(SENT_NEWS_FILE):
+            with open(SENT_NEWS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = {"fingerprints": {}}
+        
+        data["fingerprints"][fp] = datetime.now().isoformat()
+        
+        with open(SENT_NEWS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Lỗi ghi file {SENT_NEWS_FILE}: {e}")
+
+def cleanup_old_fingerprints(max_age_days: int = 30):
+    """Xóa fingerprints cũ hơn max_age_days để file không quá lớn."""
+    try:
+        if not os.path.exists(SENT_NEWS_FILE):
+            return
+        with open(SENT_NEWS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        fingerprints = data.get("fingerprints", {})
+        cutoff = datetime.now() - timedelta(days=max_age_days)
+        cutoff_iso = cutoff.isoformat()
+        
+        # Giữ lại chỉ những fingerprints mới hơn cutoff
+        cleaned = {
+            fp: ts for fp, ts in fingerprints.items()
+            if ts >= cutoff_iso
+        }
+        
+        data["fingerprints"] = cleaned
+        
+        with open(SENT_NEWS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        removed = len(fingerprints) - len(cleaned)
+        if removed > 0:
+            print(f"Đã xóa {removed} fingerprints cũ (>{max_age_days} ngày)")
+    except Exception as e:
+        print(f"Lỗi cleanup fingerprints: {e}")
+
 # Lọc tin theo mã/tên công ty/alias
 def is_stock_news(title: str, stock_cfg: dict, summary: str = "") -> bool:
     raw = f"{title} {strip_html(summary)}"
@@ -311,6 +372,13 @@ def process_news():
         print("Thiếu GEMINI_API_KEY. Hãy set GEMINI_API_KEY để bật phân tích AI.")
         return
 
+    # Load fingerprints đã gửi từ các lần chạy trước (tránh gửi lại tin cũ)
+    sent_fps = load_sent_fingerprints()
+    print(f"Đã load {len(sent_fps)} tin đã gửi trước đó.")
+    
+    # Cleanup fingerprints cũ (>30 ngày) để file không quá lớn
+    cleanup_old_fingerprints(max_age_days=30)
+
     # Dedup toàn cục trong 1 lần chạy (title+snippet)
     seen_fp = set()
 
@@ -341,7 +409,10 @@ def process_news():
                 summary = getattr(entry, "summary", "")
 
                 fp = fingerprint(title, summary)
-                if fp in seen_fp:
+                # Kiểm tra đã gửi trong lần chạy này hoặc các lần chạy trước
+                if fp in seen_fp or fp in sent_fps:
+                    if fp in sent_fps:
+                        print(f"  -> Bỏ qua (đã gửi trước đó): {title[:60]}...")
                     continue
 
                 # Bỏ tin phái sinh / chứng quyền
@@ -377,7 +448,6 @@ Yêu cầu output (Tiếng Việt, ngắn gọn, rõ ràng):
                 try:
                     response = model.generate_content(prompt)
                     analysis = response.text.strip()
-                    seen_fp.add(fp)
 
                     # Chỉ thêm snippet khi khác tiêu đề để tránh tin trùng lặp
                     body_lines = [f"🔔 TIN CỔ PHIẾU {symbol}\n", title.strip()]
@@ -386,6 +456,10 @@ Yêu cầu output (Tiếng Việt, ngắn gọn, rõ ràng):
                     body_lines.append(f"\n\n{analysis}\n\nXem gốc: {link}")
                     msg = "\n".join(body_lines)
                     send_telegram(msg)
+                    # Lưu fingerprint vào file để không gửi lại lần sau
+                    save_sent_fingerprint(fp)
+                    sent_fps[fp] = datetime.now().isoformat()  # Cập nhật trong memory
+                    seen_fp.add(fp)
                     count += 1
                     time.sleep(3)
 
