@@ -45,7 +45,7 @@ def is_stock_news(title: str, stock_cfg: dict[str, Any], summary: str = "") -> b
     if company:
         c = normalize_text(company)
         c_na = normalize_text(strip_accents(company))
-        if c in text or c_na in text_na:
+        if _contains_phrase(text, c) or _contains_phrase(text_na, c_na):
             return True
 
     for a in aliases:
@@ -58,7 +58,15 @@ def is_stock_news(title: str, stock_cfg: dict[str, Any], summary: str = "") -> b
             continue
         a_norm = normalize_text(a)
         a_na = normalize_text(strip_accents(a))
-        if a_norm in text or a_na in text_na:
+        if _contains_phrase(text, a_norm) or _contains_phrase(text_na, a_na):
+            return True
+
+    # Contextual RAG profile: economic drivers that can impact this stock.
+    # Example (HPG): coking coal / iron ore / steel prices / public investment.
+    for kw in _contextual_driver_keywords(stock_cfg):
+        k_norm = normalize_text(kw)
+        k_na = normalize_text(strip_accents(kw))
+        if k_norm and (_contains_phrase(text, k_norm) or _contains_phrase(text_na, k_na)):
             return True
 
     return False
@@ -82,6 +90,12 @@ def build_google_queries(
         a = (a or "").strip()
         if a:
             terms.append(a)
+    # Include a small subset of contextual driver keywords in search queries
+    # to capture upstream/downstream signals without making queries too noisy.
+    for k in _contextual_driver_keywords(stock_cfg)[:8]:
+        kk = (k or "").strip()
+        if kk:
+            terms.append(kk)
 
     if not terms:
         return []
@@ -93,4 +107,46 @@ def build_google_queries(
         # which can break article extraction and lead to irrelevant AI outputs.
         queries.append(base)
     return queries
+
+
+def _contextual_driver_keywords(stock_cfg: dict[str, Any]) -> list[str]:
+    profile = stock_cfg.get("context_profile", {}) or {}
+    if not isinstance(profile, dict):
+        return []
+    drivers = profile.get("impact_drivers", {}) or {}
+    if not isinstance(drivers, dict):
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        v = (value or "").strip()
+        if not v:
+            return
+        key = normalize_text(v)
+        if not key or key in seen:
+            return
+        seen.add(key)
+        out.append(v)
+
+    for _, values in drivers.items():
+        if isinstance(values, list):
+            for item in values:
+                if isinstance(item, str):
+                    _add(item)
+    return out
+
+
+def _contains_phrase(haystack: str, phrase: str) -> bool:
+    """
+    Phrase match with word boundaries to avoid accidental substring hits.
+    Example false-positive to avoid: "Khánh Hòa phát động" vs "Hòa Phát".
+    """
+    hs = (haystack or "").strip()
+    ph = (phrase or "").strip()
+    if not hs or not ph:
+        return False
+    # Treat phrase as a full token sequence, not a raw substring.
+    return re.search(rf"(?<!\w){re.escape(ph)}(?!\w)", hs, flags=re.IGNORECASE) is not None
 

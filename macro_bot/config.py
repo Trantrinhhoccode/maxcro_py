@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import json
 from typing import Any
 
 
@@ -42,6 +43,7 @@ class BotConfig:
     article_fetch_timeout_sec: int
     resolve_final_url: bool
     allow_wide_query: bool
+    company_profiles_file: str
 
     @staticmethod
     def from_env() -> "BotConfig":
@@ -72,6 +74,11 @@ class BotConfig:
                 ],
             }
         ]
+        company_profiles_file = (
+            os.getenv("COMPANY_PROFILES_FILE", "company_profiles.json").strip()
+            or "company_profiles.json"
+        )
+        stocks = _merge_company_profiles(stocks, company_profiles_file)
 
         return BotConfig(
             gemini_api_key=gemini_api_key,
@@ -91,5 +98,27 @@ class BotConfig:
             article_fetch_timeout_sec=_env_int("ARTICLE_FETCH_TIMEOUT_SEC", 20),
             resolve_final_url=_env_bool("RESOLVE_FINAL_URL", True),
             allow_wide_query=_env_bool("ALLOW_WIDE_QUERY", False),
+            company_profiles_file=company_profiles_file,
         )
+
+
+def _merge_company_profiles(
+    stocks: list[dict[str, Any]],
+    company_profiles_file: str,
+) -> list[dict[str, Any]]:
+    try:
+        with open(company_profiles_file, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        return stocks
+
+    profiles = raw if isinstance(raw, dict) else {}
+    out: list[dict[str, Any]] = []
+    for stock in stocks:
+        merged = dict(stock)
+        symbol = str(stock.get("symbol", "") or "").strip().upper()
+        if symbol and symbol in profiles and isinstance(profiles[symbol], dict):
+            merged["context_profile"] = profiles[symbol]
+        out.append(merged)
+    return out
 

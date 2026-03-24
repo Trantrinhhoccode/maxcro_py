@@ -1,0 +1,60 @@
+{
+  "HPG": {
+    "company_name": "Tập đoàn Hòa Phát",
+    "business_model": {
+      "core_segments": [
+        "Thép xây dựng",
+        "Thép cuộn cán nóng (HRC)",
+        "Ống thép, tôn mạ",
+        "Nông nghiệp (công ty liên quan HPA)"
+      ],
+      "value_chain": "Mô hình tích hợp từ nguyên liệu đầu vào đến thành phẩm; biên lợi nhuận nhạy với chu kỳ giá hàng hóa và nhu cầu xây dựng."
+    },
+    "impact_drivers": {
+      "input_cost_drivers": [
+        "giá than cốc",
+        "than cốc",
+        "coking coal",
+        "giá quặng sắt",
+        "quặng sắt",
+        "iron ore",
+        "giá điện",
+        "giá than",
+        "chi phí năng lượng",
+        "giá vận tải biển",
+        "cước vận tải"
+      ],
+      "output_price_drivers": [
+        "giá thép",
+        "giá thép xây dựng",
+        "giá HRC",
+        "giá thép cuộn cán nóng",
+        "biên lợi nhuận ngành thép"
+      ],
+      "demand_drivers": [
+        "đầu tư công",
+        "giải ngân đầu tư công",
+        "xây dựng hạ tầng",
+        "thị trường bất động sản",
+        "nhu cầu thép"
+      ],
+      "policy_trade_drivers": [
+        "thuế chống bán phá giá",
+        "anti-dumping",
+        "phòng vệ thương mại",
+        "thuế nhập khẩu thép",
+        "hạn ngạch thép"
+      ],
+      "finance_market_drivers": [
+        "lãi suất",
+        "tỷ giá USDVND",
+        "tỷ giá USD/VND",
+        "chi phí tài chính"
+      ]
+    },
+    "notes": [
+      "Từ khóa ở đây được dùng để tăng khả năng bắt tín hiệu ảnh hưởng gián tiếp đến HPG.",
+      "Cần cập nhật định kỳ theo chiến lược doanh nghiệp và bối cảnh ngành."
+    ]
+  }
+}

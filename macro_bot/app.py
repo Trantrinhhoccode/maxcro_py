@@ -18,6 +18,7 @@ from .sources import GoogleNewsRssSource, NewsItem
 from .state import JsonFileStateStore
 from .text import fingerprint, snippet_adds_value, strip_html
 from .text import fingerprint_by_url
+from .text import fingerprint_by_title_core
 from .text import strip_accents
 
 
@@ -149,9 +150,12 @@ class MacroBotApp:
 
                     fp = fingerprint(item.title, item.summary)
                     fp_url = fingerprint_by_url(item.title, item.link)
+                    fp_title_core = fingerprint_by_title_core(item.title)
                     if fp in seen_fp or fp in sent_fps:
                         continue
                     if fp_url in seen_fp or fp_url in sent_fps:
+                        continue
+                    if fp_title_core in seen_fp or fp_title_core in sent_fps:
                         continue
 
                     # Build relevance text from controlled keywords only.
@@ -267,6 +271,36 @@ class MacroBotApp:
                         extra_candidate_urls=extra_candidate_urls or None,
                     )
                     if not article_text:
+                        msg = "\n".join(
+                            [
+                                f"🔔 TIN CỔ PHIẾU {symbol}\n",
+                                item.title.strip(),
+                                "\n📰 AI không trích xuất được nội dung bài viết đầy đủ.",
+                                f"\nXem gốc: {final_url or item.link}",
+                            ]
+                        )
+                        sent_ok = False
+                        try:
+                            sent_ok = self.notifier.send_markdown(msg)
+                        except Exception as e:
+                            print(f"Lỗi gửi Telegram: {e}")
+
+                        if sent_ok:
+                            now_iso = datetime.now().isoformat()
+                            self.state.save_fingerprint(fp, now_iso)
+                            self.state.save_fingerprint(fp_url, now_iso)
+                            self.state.save_fingerprint(fp_title_core, now_iso)
+                            sent_fps[fp] = now_iso
+                            sent_fps[fp_url] = now_iso
+                            sent_fps[fp_title_core] = now_iso
+                            seen_fp.add(fp)
+                            seen_fp.add(fp_url)
+                            seen_fp.add(fp_title_core)
+                            count += 1
+                            time.sleep(3)
+                        if count >= cfg.max_send_per_run:
+                            print(f"Đã đạt giới hạn gửi {cfg.max_send_per_run} tin trong 1 lần chạy.")
+                            break
                         continue
 
                     analysis = self.analyzer.analyze(
@@ -301,10 +335,13 @@ class MacroBotApp:
                         # (Old runs may only have `fingerprint(title, snippet)`)
                         self.state.save_fingerprint(fp, now_iso)
                         self.state.save_fingerprint(fp_url, now_iso)
+                        self.state.save_fingerprint(fp_title_core, now_iso)
                         sent_fps[fp] = now_iso
                         sent_fps[fp_url] = now_iso
+                        sent_fps[fp_title_core] = now_iso
                         seen_fp.add(fp)
                         seen_fp.add(fp_url)
+                        seen_fp.add(fp_title_core)
                         count += 1
                         time.sleep(3)
 
