@@ -277,11 +277,13 @@ class MacroBotApp:
                         article_text=article_text,
                         source_url=final_url or item.link,
                     )
+                    # Keep Telegram output clean even when the model returns markdown.
+                    analysis = re.sub(r"[*_`#>]+", "", analysis or "").strip()
                     body_lines = [f"🔔 TIN CỔ PHIẾU {symbol}\n", item.title.strip()]
                     if snippet_adds_value(item.title, item.summary):
                         body_lines.append("\nSnippet: " + strip_html(item.summary).strip()[:280])
                     if article_text:
-                        body_lines.append("\n\n📰 *Đã trích nội dung bài báo để phân tích*")
+                        body_lines.append("\n\n📰 Đã trích nội dung bài báo để phân tích")
 
                     body_lines.append(f"\n\n{analysis}\n\nXem gốc: {final_url or item.link}")
                     msg = "\n".join(body_lines)
