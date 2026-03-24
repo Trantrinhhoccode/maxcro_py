@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+import time
+import os
+import re
+from urllib.parse import urlparse
+from urllib.parse import quote_plus
+import requests
+
+from .analyzer import GeminiAnalyzer
+from .articles import ArticleFetcher
+from .config import BotConfig
+from .filters import build_google_queries, is_derivative_news, is_stock_news, is_within_days
+from .notifiers import TelegramNotifier
+from .sources import GoogleNewsRssSource, NewsItem
+from .state import JsonFileStateStore
+from .text import fingerprint, snippet_adds_value, strip_html
+from .text import fingerprint_by_url
+from .text import strip_accents
+
+
+def _search_cafef_candidates(title: str, timeout_sec: int) -> list[str]:
+    """
+    Fallback when Google wrapper does not expose publisher URL.
+    Search CafeF by title and pull top article links.
+    """
+    t_raw = (title or "").strip()
+    if not t_raw:
+        return []
+    t_base = re.sub(r"\s*-\s*cafef\s*$", "", t_raw, flags=re.I).strip()
+    t_base = re.sub(r"\s+", " ", t_base).strip()
+    t_no_acc = strip_accents(t_base)
+    # Remove punctuation-heavy noise and keep compact phrase variants.
+    t_clean = re.sub(r"[^0-9A-Za-zÀ-ỹà-ỹ\s]", " ", t_base)
+    t_clean = re.sub(r"\s+", " ", t_clean).strip()
+    t_clean_no_acc = strip_accents(t_clean)
+    queries = []
+    for q in [t_base, t_no_acc, t_clean, t_clean_no_acc]:
+        qq = (q or "").strip()
+        if qq and qq not in queries:
+            queries.append(qq)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for q in queries[:4]:
+        try:
+            url = f"https://cafef.vn/tim-kiem.chn?keywords={quote_plus(q)}"
+            resp = requests.get(
+                url,
+                timeout=timeout_sec,
+                headers={"User-Agent": "Mozilla/5.0"},
+                allow_redirects=True,
+            )
+            resp.raise_for_status()
+            html = resp.text or ""
+            abs_links = re.findall(r"(https://cafef\.vn/[^\"'\s>]+\.chn)", html, flags=re.I)
+            rel_links = re.findall(r"href=[\"'](/[^\"'#\s>]+\.chn)[\"']", html, flags=re.I)
+            links = abs_links + [f"https://cafef.vn{path}" for path in rel_links]
+            # Keep likely-article URLs only; drop static category pages.
+            links = [ln for ln in links if re.search(r"-\d{8,}\.chn$", ln)]
+            for ln in links:
+                cand = ln.strip()
+                if not cand or cand in seen:
+                    continue
+                seen.add(cand)
+                out.append(cand)
+            if out:
+                break
+        except Exception:
+            continue
+    return out[:8]
+
+
+@dataclass
+class MacroBotApp:
+    config: BotConfig
+    source: GoogleNewsRssSource
+    fetcher: ArticleFetcher
+    analyzer: GeminiAnalyzer | None
+    notifier: TelegramNotifier
+    state: JsonFileStateStore
+
+    @staticmethod
+    def build_default() -> "MacroBotApp":
+        cfg = BotConfig.from_env()
+        analyzer = GeminiAnalyzer(api_key=cfg.gemini_api_key, model_name=cfg.genai_model) if cfg.gemini_api_key else None
+        return MacroBotApp(
+            config=cfg,
+            source=GoogleNewsRssSource(timeout_sec=cfg.article_fetch_timeout_sec),
+            fetcher=ArticleFetcher(
+                timeout_sec=cfg.article_fetch_timeout_sec,
+                max_chars=cfg.article_max_chars,
+                resolve_final_url=cfg.resolve_final_url,
+                allowed_domains=cfg.google_sources,
+            ),
+            analyzer=analyzer,
+            notifier=TelegramNotifier(token=cfg.telegram_token, chat_id=cfg.telegram_chat_id, dry_run=cfg.dry_run),
+            state=JsonFileStateStore(path=cfg.sent_news_file),
+        )
+
+    def run(self) -> int:
+        cfg = self.config
+        print(
+            f"--- BẮT ĐẦU QUÉT TIN (chỉ gửi tin trong {cfg.recent_days} ngày gần nhất): "
+            f"{datetime.now().strftime('%d/%m/%Y')} ---"
+        )
+
+        if not self.analyzer:
+            print("Thiếu GEMINI_API_KEY. Hãy set GEMINI_API_KEY để bật phân tích AI.")
+            return 0
+
+        sent_fps = self.state.load_fingerprints()
+        print(f"Đã load {len(sent_fps)} tin đã gửi trước đó.")
+        removed = self.state.cleanup(max_age_days=30)
+        if removed:
+            print(f"Đã xóa {removed} fingerprints cũ (>30 ngày)")
+
+        count = 0
+        seen_fp: set[str] = set()
+
+        for stock_cfg in cfg.stocks:
+            symbol = stock_cfg.get("symbol", "N/A")
+            company = stock_cfg.get("company", "") or ""
+            print(f"=== QUÉT TIN CHO {symbol} ===")
+
+            queries = build_google_queries(
+                stock_cfg,
+                cfg.google_sources,
+                allow_wide_query=cfg.allow_wide_query,
+            )
+            print(f"Queries: {queries}")
+
+            for q in queries:
+                print(f"Đang tìm: {q} ...")
+                items = self.source.fetch(q, max_items=cfg.scan_per_feed)
+                items = sorted(items, key=lambda x: x.published_at or datetime.min, reverse=True)
+                for item in items:
+                    if not is_within_days(item.published_at, cfg.lookback_days):
+                        continue
+                    if not is_within_days(item.published_at, cfg.recent_days):
+                        continue
+
+                    if is_derivative_news(item.title, item.summary):
+                        continue
+                    if not is_stock_news(item.title, stock_cfg, summary=item.summary):
+                        continue
+
+                    fp = fingerprint(item.title, item.summary)
+                    fp_url = fingerprint_by_url(item.title, item.link)
+                    if fp in seen_fp or fp in sent_fps:
+                        continue
+                    if fp_url in seen_fp or fp_url in sent_fps:
+                        continue
+
+                    # Build relevance text from controlled keywords only.
+                    # Avoid using RSS summary because it may contain HTML boilerplate
+                    # that introduces noisy tokens (e.g. HREF/OC/NEWS).
+                    aliases = stock_cfg.get("aliases", []) or []
+                    relevance_text = " ".join(
+                        [
+                            str(symbol or "").strip().upper(),
+                            company or "",
+                            item.title or "",
+                            " ".join(a for a in aliases if a),
+                        ]
+                    )
+
+                    extra_candidate_urls: list[str] = []
+                    # Try to extract direct publisher URLs from RSS entry raw.
+                    # This avoids depending on parsing Google News wrapper HTML.
+                    try:
+                        raw = getattr(item, "raw", None)
+                        if raw:
+                            blob_parts: list[str] = []
+                            if hasattr(raw, "items"):
+                                try:
+                                    raw_keys = [str(k) for k in list(raw.keys())[:20]]  # type: ignore[attr-defined]
+                                except Exception:
+                                    raw_keys = []
+                                try:
+                                    raw_links = raw.get("links", [])  # type: ignore[attr-defined]
+                                    links_preview: list[dict] = []
+                                    if isinstance(raw_links, list):
+                                        for it in raw_links[:6]:
+                                            if hasattr(it, "get"):
+                                                links_preview.append(
+                                                    {
+                                                        "rel": str(it.get("rel", "")),
+                                                        "type": str(it.get("type", "")),
+                                                        "href": str(it.get("href", ""))[:240],
+                                                    }
+                                                )
+                                    raw_source = raw.get("source", None)  # type: ignore[attr-defined]
+                                    source_preview = {}
+                                    if hasattr(raw_source, "get"):
+                                        source_preview = {
+                                            "title": str(raw_source.get("title", ""))[:120],
+                                            "href": str(raw_source.get("href", ""))[:240],
+                                        }
+                                except Exception:
+                                    pass
+                                try:
+                                    raw_summary = str(raw.get("summary", ""))  # type: ignore[attr-defined]
+                                    summary_urls = re.findall(r"(https?://[^\s\"'<>]+)", raw_summary)
+                                    summary_urls = summary_urls[:20]
+                                except Exception:
+                                    pass
+                                for _k, v in raw.items():
+                                    if isinstance(v, str):
+                                        blob_parts.append(v)
+                                    elif isinstance(v, (list, tuple)):
+                                        for vv in v:
+                                            if isinstance(vv, str):
+                                                blob_parts.append(vv)
+                            else:
+                                s = str(raw)
+                                if s:
+                                    blob_parts.append(s)
+                            blob = " ".join(blob_parts)
+
+                            # Pull out URLs (including protocol-relative //...).
+                            # NOTE: use \s (whitespace) instead of \\s.
+                            # The previous pattern accidentally excluded letter "s",
+                            # truncating URLs like "https://news..." into "https://new".
+                            urls = re.findall(r"(https?://[^\s\"'<>]+|//[^\s\"'<>]+)", blob)
+                            allowed = [d.lower() for d in (cfg.google_sources or [])]
+                            for u in urls:
+                                cand = u
+                                if cand.startswith("//"):
+                                    cand = "https:" + cand
+                                try:
+                                    host = urlparse(cand).netloc.lower()
+                                except Exception:
+                                    continue
+                                if not host:
+                                    continue
+                                if any(h == d or h.endswith("." + d) for d in allowed for h in [host]):
+                                    extra_candidate_urls.append(cand)
+                    except Exception:
+                        pass
+
+                    # Fallback: Google RSS wrapper often hides publisher URL.
+                    # For CafeF items, query CafeF search endpoint by title.
+                    if not extra_candidate_urls:
+                        source_domain = ""
+                        try:
+                            raw = getattr(item, "raw", None)
+                            if raw and hasattr(raw, "get"):
+                                src = raw.get("source", None)  # type: ignore[attr-defined]
+                                if src and hasattr(src, "get"):
+                                    source_domain = (urlparse(str(src.get("href", ""))).netloc or "").lower()
+                        except Exception:
+                            source_domain = ""
+                        if source_domain.endswith("cafef.vn"):
+                            cafef_candidates = _search_cafef_candidates(
+                                title=item.title or "",
+                                timeout_sec=cfg.article_fetch_timeout_sec,
+                            )
+                            if cafef_candidates:
+                                extra_candidate_urls.extend(cafef_candidates)
+
+                    final_url, article_text = self.fetcher.fetch_text(
+                        item.link,
+                        relevance_text=relevance_text,
+                        extra_candidate_urls=extra_candidate_urls or None,
+                    )
+                    if not article_text:
+                        continue
+
+                    analysis = self.analyzer.analyze(
+                        symbol=symbol,
+                        company=company,
+                        title=item.title,
+                        snippet_html=item.summary,
+                        article_text=article_text,
+                        source_url=final_url or item.link,
+                    )
+                    body_lines = [f"🔔 TIN CỔ PHIẾU {symbol}\n", item.title.strip()]
+                    if snippet_adds_value(item.title, item.summary):
+                        body_lines.append("\nSnippet: " + strip_html(item.summary).strip()[:280])
+                    if article_text:
+                        body_lines.append("\n\n📰 *Đã trích nội dung bài báo để phân tích*")
+
+                    body_lines.append(f"\n\n{analysis}\n\nXem gốc: {final_url or item.link}")
+                    msg = "\n".join(body_lines)
+
+                    sent_ok = False
+                    try:
+                        sent_ok = self.notifier.send_markdown(msg)
+                    except Exception as e:
+                        print(f"Lỗi gửi Telegram: {e}")
+
+                    # Only mark as sent when Telegram actually succeeded.
+                    if sent_ok:
+                        now_iso = datetime.now().isoformat()
+                        # Save both keys for backwards-compat with any existing state.
+                        # (Old runs may only have `fingerprint(title, snippet)`)
+                        self.state.save_fingerprint(fp, now_iso)
+                        self.state.save_fingerprint(fp_url, now_iso)
+                        sent_fps[fp] = now_iso
+                        sent_fps[fp_url] = now_iso
+                        seen_fp.add(fp)
+                        seen_fp.add(fp_url)
+                        count += 1
+                        time.sleep(3)
+
+                    if count >= cfg.max_send_per_run:
+                        print(f"Đã đạt giới hạn gửi {cfg.max_send_per_run} tin trong 1 lần chạy.")
+                        break
+
+                if count >= cfg.max_send_per_run:
+                    break
+
+        if count == 0:
+            msg = f"ℹ️ Không có tin mới (trong {cfg.recent_days} ngày gần nhất) — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            print(msg)
+            if cfg.always_notify_no_news:
+                self.notifier.send_markdown(msg)
+        else:
+            print(f"Đã gửi {count} tin.")
+
+        return count
+

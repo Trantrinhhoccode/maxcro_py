@@ -15,6 +15,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download sent news artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: sent-news
+          path: .
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -38,3 +45,10 @@ jobs:
           GENAI_MODEL: "gemma-3-27b-it"
         run: |
           python macro_bot.py
+
+      - name: Upload sent news artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sent-news
+          path: sent_news.json
+          if-no-files-found: ignore

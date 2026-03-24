@@ -1,0 +1,2 @@
+"""Macro bot package."""
+
