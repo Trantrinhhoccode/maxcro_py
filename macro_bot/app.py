@@ -19,6 +19,9 @@ from .state import JsonFileStateStore
 from .text import fingerprint, snippet_adds_value, strip_html
 from .text import fingerprint_by_url
 from .text import fingerprint_by_title_core
+from .text import fingerprint_by_title_signature
+from .text import fingerprint_by_event
+from .text import event_combo_fingerprints
 from .text import strip_accents
 
 
@@ -151,11 +154,20 @@ class MacroBotApp:
                     fp = fingerprint(item.title, item.summary)
                     fp_url = fingerprint_by_url(item.title, item.link)
                     fp_title_core = fingerprint_by_title_core(item.title)
+                    fp_title_sig = fingerprint_by_title_signature(item.title)
+                    fp_event = fingerprint_by_event(item.title, item.summary)
+                    fp_event_combos = event_combo_fingerprints(item.title, item.summary)
                     if fp in seen_fp or fp in sent_fps:
                         continue
                     if fp_url in seen_fp or fp_url in sent_fps:
                         continue
                     if fp_title_core in seen_fp or fp_title_core in sent_fps:
+                        continue
+                    if fp_title_sig in seen_fp or fp_title_sig in sent_fps:
+                        continue
+                    if fp_event in seen_fp or fp_event in sent_fps:
+                        continue
+                    if any(k in seen_fp or k in sent_fps for k in fp_event_combos):
                         continue
 
                     # Build relevance text from controlled keywords only.
@@ -290,12 +302,23 @@ class MacroBotApp:
                             self.state.save_fingerprint(fp, now_iso)
                             self.state.save_fingerprint(fp_url, now_iso)
                             self.state.save_fingerprint(fp_title_core, now_iso)
+                            self.state.save_fingerprint(fp_title_sig, now_iso)
+                            self.state.save_fingerprint(fp_event, now_iso)
+                            for k in fp_event_combos:
+                                self.state.save_fingerprint(k, now_iso)
                             sent_fps[fp] = now_iso
                             sent_fps[fp_url] = now_iso
                             sent_fps[fp_title_core] = now_iso
+                            sent_fps[fp_title_sig] = now_iso
+                            sent_fps[fp_event] = now_iso
+                            for k in fp_event_combos:
+                                sent_fps[k] = now_iso
                             seen_fp.add(fp)
                             seen_fp.add(fp_url)
                             seen_fp.add(fp_title_core)
+                            seen_fp.add(fp_title_sig)
+                            seen_fp.add(fp_event)
+                            seen_fp.update(fp_event_combos)
                             count += 1
                             time.sleep(3)
                         if count >= cfg.max_send_per_run:
@@ -336,12 +359,23 @@ class MacroBotApp:
                         self.state.save_fingerprint(fp, now_iso)
                         self.state.save_fingerprint(fp_url, now_iso)
                         self.state.save_fingerprint(fp_title_core, now_iso)
+                        self.state.save_fingerprint(fp_title_sig, now_iso)
+                        self.state.save_fingerprint(fp_event, now_iso)
+                        for k in fp_event_combos:
+                            self.state.save_fingerprint(k, now_iso)
                         sent_fps[fp] = now_iso
                         sent_fps[fp_url] = now_iso
                         sent_fps[fp_title_core] = now_iso
+                        sent_fps[fp_title_sig] = now_iso
+                        sent_fps[fp_event] = now_iso
+                        for k in fp_event_combos:
+                            sent_fps[k] = now_iso
                         seen_fp.add(fp)
                         seen_fp.add(fp_url)
                         seen_fp.add(fp_title_core)
+                        seen_fp.add(fp_title_sig)
+                        seen_fp.add(fp_event)
+                        seen_fp.update(fp_event_combos)
                         count += 1
                         time.sleep(3)
 
@@ -360,5 +394,7 @@ class MacroBotApp:
         else:
             print(f"Đã gửi {count} tin.")
 
-        return count
+        # Do not return `count` as process exit code: CI treats any non-zero as failure
+        # (e.g. gửi 5 tin ⇒ exit 5 ⇒ GitHub Actions đỏ).
+        return 0
 

@@ -7,6 +7,11 @@ on:
     # GitHub cron dùng UTC => 09:00 VN = 02:00 UTC, 18:00 VN = 11:00 UTC
     - cron: "0 2,11 * * *"
 
+# Cần `actions: read` để tải artifact từ các workflow run trước (token mặc định).
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -15,12 +20,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download sent news artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
+      # `actions/download-artifact@v4` mặc định chỉ tải artifact của *cùng* run_id;
+      # đầu job mới chưa có upload ⇒ luôn "not found". Dùng action này để lấy `sent-news`
+      # từ lần chạy Macro Bot gần nhất có artifact (lần đầu: bỏ qua).
+      - name: Download sent news (run trước)
+        uses: dawidd6/action-download-artifact@v6
         with:
+          workflow: macro-bot.yml
           name: sent-news
           path: .
+          search_artifacts: true
+          if_no_artifact_found: ignore
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -37,6 +47,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SENT_NEWS_FILE: sent_news.json
           # Tuỳ chọn
           LOOKBACK_DAYS: "30"
           RECENT_DAYS: "3"

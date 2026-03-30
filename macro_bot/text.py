@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import re
 import unicodedata
 
@@ -72,6 +73,114 @@ def fingerprint_by_title_core(title: str) -> str:
     core = re.sub(r"[^a-z0-9\u00c0-\u1ef9 ]+", " ", core)
     core = re.sub(r"\s+", " ", core).strip()
     return hashlib.md5(core.encode("utf-8")).hexdigest()
+
+
+def fingerprint_by_title_signature(title: str) -> str:
+    """
+    Relaxed headline signature for near-duplicate cross-source titles.
+    Keeps only informative tokens and ignores source suffix/noise words.
+    """
+    t = normalize_text(title)
+    core = t.rsplit(" - ", 1)[0] if " - " in t else t
+    core = re.sub(r"[^a-z0-9\u00c0-\u1ef9 ]+", " ", core)
+    tokens = [tok for tok in core.split() if tok]
+    stop = {
+        "tin", "bao", "báo", "thong", "thông", "ve", "về", "quan", "trong", "quantrong",
+        "moi", "mới", "nhat", "nhất", "cho", "cua", "của", "va", "và", "voi", "với",
+        "tai", "tại", "tu", "từ", "den", "đến", "the", "la", "là",
+    }
+    kept: list[str] = []
+    for tok in tokens:
+        if len(tok) < 3:
+            continue
+        if tok in stop:
+            continue
+        kept.append(tok)
+    # Stable signature by sorted unique informative tokens.
+    uniq = sorted(set(kept))
+    base = " ".join(uniq[:20]).strip()
+    return hashlib.md5(base.encode("utf-8")).hexdigest()
+
+
+def fingerprint_by_event(title: str, summary: str = "") -> str:
+    """
+    Event-level dedup key to merge paraphrased cross-source headlines.
+    Built from normalized title+snippet, numeric markers, and informative tokens.
+    """
+    raw = f"{title or ''} {strip_html(summary or '')}"
+    txt = normalize_text(raw)
+    # Remove trailing source suffix from title-like structures.
+    if " - " in txt:
+        txt = txt.rsplit(" - ", 1)[0]
+    txt = re.sub(r"[^a-z0-9\u00c0-\u1ef9% ]+", " ", txt)
+    txt = re.sub(r"\s+", " ", txt).strip()
+
+    # Keep salient numeric signals (percentages, plain numbers).
+    nums = re.findall(r"\d+(?:[.,]\d+)?%?", txt)
+
+    stop = {
+        "tin", "bao", "báo", "thong", "thông", "ve", "về", "quan", "trong", "moi", "mới",
+        "nhat", "nhất", "cho", "cua", "của", "va", "và", "voi", "với", "tai", "tại", "tu",
+        "từ", "den", "đến", "the", "la", "là", "khong", "không", "duoc", "được",
+    }
+    tokens = [tok for tok in txt.split() if tok]
+    kept: list[str] = []
+    for tok in tokens:
+        if len(tok) < 3:
+            continue
+        if tok in stop:
+            continue
+        kept.append(tok)
+
+    uniq_tokens = sorted(set(kept))[:24]
+    uniq_nums = sorted(set(nums))[:8]
+    base = " ".join(uniq_tokens + uniq_nums).strip()
+    return hashlib.md5(base.encode("utf-8")).hexdigest()
+
+
+def event_combo_fingerprints(title: str, summary: str = "") -> list[str]:
+    """
+    Return multiple fuzzy event keys (token-combinations) to catch paraphrased
+    cross-source duplicates of the same underlying event.
+    """
+    raw = f"{title or ''} {strip_html(summary or '')}"
+    txt = strip_accents(normalize_text(raw))
+    if " - " in txt:
+        txt = txt.rsplit(" - ", 1)[0]
+    txt = re.sub(r"[^a-z0-9 ]+", " ", txt)
+    txt = re.sub(r"\s+", " ", txt).strip()
+
+    stop = {
+        "tin", "bao", "thong", "ve", "quan", "trong", "moi", "nhat", "cho", "cua", "va",
+        "voi", "tai", "tu", "den", "the", "la", "khong", "duoc", "nhung", "cac", "mot",
+        "nha", "may", "bo", "cong", "thuong", "thang", "nam", "nguoi", "doanh", "nghiep",
+        "znews", "vietnamnet", "vietnambiz", "hanoimoi", "vietnam", "cafef", "vietstock",
+        "vneconomy", "ndh",
+    }
+    tokens = [tok for tok in txt.split() if len(tok) >= 3 and tok not in stop]
+    uniq: list[str] = []
+    for tok in tokens:
+        if tok not in uniq:
+            uniq.append(tok)
+
+    # Keep stable set of salient terms.
+    salient = uniq[:10]
+    if not salient:
+        return []
+
+    # Exact-like fuzzy key.
+    keys: list[str] = []
+    base = " ".join(sorted(set(salient)))
+    keys.append(hashlib.md5(base.encode("utf-8")).hexdigest())
+
+    # Combination keys (3-grams) improve paraphrase matching.
+    if len(salient) >= 3:
+        for combo in itertools.combinations(sorted(set(salient)), 3):
+            c = " ".join(combo)
+            keys.append(hashlib.md5(f"evt3:{c}".encode("utf-8")).hexdigest())
+            if len(keys) >= 30:
+                break
+    return keys
 
 
 def snippet_adds_value(title: str, snippet: str) -> bool:

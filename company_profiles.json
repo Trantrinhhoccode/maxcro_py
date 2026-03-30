@@ -18,7 +18,6 @@
         "giá quặng sắt",
         "quặng sắt",
         "iron ore",
-        "giá điện",
         "giá than",
         "chi phí năng lượng",
         "giá vận tải biển",
@@ -44,12 +43,6 @@
         "phòng vệ thương mại",
         "thuế nhập khẩu thép",
         "hạn ngạch thép"
-      ],
-      "finance_market_drivers": [
-        "lãi suất",
-        "tỷ giá USDVND",
-        "tỷ giá USD/VND",
-        "chi phí tài chính"
       ]
     },
     "notes": [
