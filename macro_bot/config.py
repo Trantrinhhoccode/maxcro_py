@@ -73,6 +73,37 @@ class BotConfig:
                     "Hòa Phát Dung Quất",
                 ],
             }
+            ,
+            {
+                "symbol": "PC1",
+                "company": "PC1",
+                "aliases": [
+                    "Tập đoàn PC1",
+                    "PC1 Group",
+                    "CTCP Tập đoàn PC1",
+                    "PC1 Power",
+                    "năng lượng tái tạo PC1",
+                ],
+            },
+            {
+                "symbol": "MBB",
+                "company": "Ngân hàng TMCP Quân đội",
+                "aliases": [
+                    "MB Bank",
+                    "Ngân hàng Quân đội",
+                    "MB",
+                    "MBBank",
+                ],
+            },
+            {
+                "symbol": "ACB",
+                "company": "Ngân hàng TMCP Á Châu",
+                "aliases": [
+                    "Ngân hàng Á Châu",
+                    "Asia Commercial Bank",
+                    "ACB Bank",
+                ],
+            },
         ]
         company_profiles_file = (
             os.getenv("COMPANY_PROFILES_FILE", "company_profiles.json").strip()
@@ -113,12 +144,43 @@ def _merge_company_profiles(
         return stocks
 
     profiles = raw if isinstance(raw, dict) else {}
+    sectors = profiles.get("_sectors", {}) if isinstance(profiles.get("_sectors", {}), dict) else {}
+
+    def _merge_profile(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+        out = dict(base)
+        for k, v in overlay.items():
+            if k == "impact_drivers" and isinstance(v, dict) and isinstance(out.get("impact_drivers"), dict):
+                merged_drivers: dict[str, Any] = dict(out["impact_drivers"])  # type: ignore[index]
+                for dk, dv in v.items():
+                    if isinstance(dv, list) and isinstance(merged_drivers.get(dk), list):
+                        seen: set[str] = set()
+                        items: list[str] = []
+                        for it in list(merged_drivers.get(dk, [])) + list(dv):  # type: ignore[arg-type]
+                            if isinstance(it, str):
+                                key = it.strip().lower()
+                                if key and key not in seen:
+                                    seen.add(key)
+                                    items.append(it)
+                        merged_drivers[dk] = items
+                    else:
+                        merged_drivers[dk] = dv
+                out["impact_drivers"] = merged_drivers
+                continue
+            out[k] = v
+        return out
     out: list[dict[str, Any]] = []
     for stock in stocks:
         merged = dict(stock)
         symbol = str(stock.get("symbol", "") or "").strip().upper()
         if symbol and symbol in profiles and isinstance(profiles[symbol], dict):
-            merged["context_profile"] = profiles[symbol]
+            p = dict(profiles[symbol])
+            sector_key = str(p.get("sector", "") or "").strip().upper()
+            if sector_key and sector_key in sectors and isinstance(sectors.get(sector_key), dict):
+                merged_prof = _merge_profile(dict(sectors[sector_key]), p)  # type: ignore[index]
+                merged_prof.pop("sector", None)
+                merged["context_profile"] = merged_prof
+            else:
+                merged["context_profile"] = p
         out.append(merged)
     return out
 

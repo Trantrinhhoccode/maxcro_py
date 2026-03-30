@@ -1,4 +1,57 @@
 {
+  "_sectors": {
+    "BANKING": {
+      "sector_name": "Ngân hàng",
+      "business_model": {
+        "core_segments": [
+          "Ngân hàng bán lẻ",
+          "Ngân hàng doanh nghiệp",
+          "Dịch vụ thẻ/Thanh toán",
+          "Bancassurance/Chứng khoán (tùy hệ sinh thái)"
+        ],
+        "value_chain": "Lợi nhuận nhạy với tăng trưởng tín dụng, NIM, CASA, chất lượng tài sản, thu nhập ngoài lãi và trích lập dự phòng."
+      },
+      "impact_drivers": {
+        "macro_monetary": [
+          "lãi suất",
+          "lãi suất huy động",
+          "lãi suất cho vay",
+          "tăng trưởng tín dụng",
+          "room tín dụng",
+          "nới room tín dụng",
+          "thanh khoản hệ thống",
+          "lãi suất liên ngân hàng"
+        ],
+        "banking_kpis": [
+          "NIM",
+          "biên lãi ròng",
+          "CASA",
+          "tỷ lệ CASA",
+          "nợ xấu",
+          "NPL",
+          "trích lập dự phòng",
+          "chi phí dự phòng",
+          "thu nhập ngoài lãi",
+          "phí dịch vụ"
+        ],
+        "policy_regulatory": [
+          "Thông tư",
+          "NHNN",
+          "Basel",
+          "CAR",
+          "hệ số an toàn vốn"
+        ],
+        "sector_exposure": [
+          "bất động sản",
+          "trái phiếu doanh nghiệp",
+          "SME"
+        ]
+      },
+      "notes": [
+        "Profile ngành ngân hàng dùng chung cho các mã bank; khác biệt từng ngân hàng sẽ phân biệt qua mã + tên/alias ở config."
+      ]
+    }
+  },
   "HPG": {
     "company_name": "Tập đoàn Hòa Phát",
     "business_model": {
@@ -49,5 +102,44 @@
       "Từ khóa ở đây được dùng để tăng khả năng bắt tín hiệu ảnh hưởng gián tiếp đến HPG.",
       "Cần cập nhật định kỳ theo chiến lược doanh nghiệp và bối cảnh ngành."
     ]
+  }
+  ,
+  "PC1": {
+    "company_name": "CTCP Tập đoàn PC1",
+    "business_model": {
+      "core_segments": [
+        "Xây lắp điện và hạ tầng năng lượng",
+        "Đầu tư năng lượng (thủy điện/điện gió/điện mặt trời)",
+        "Bất động sản khu công nghiệp/nhà ở (tùy giai đoạn)"
+      ],
+      "value_chain": "Doanh thu phụ thuộc tiến độ dự án EPC/hạ tầng và sản lượng giá bán điện; nhạy với giá điện, cơ chế FIT/đấu thầu, chi phí vốn."
+    },
+    "impact_drivers": {
+      "policy_regulatory": [
+        "giá điện",
+        "biểu giá điện",
+        "quy hoạch điện",
+        "PDP8",
+        "cơ chế FIT",
+        "đấu thầu điện gió",
+        "đấu thầu điện mặt trời"
+      ],
+      "demand_drivers": [
+        "đầu tư công",
+        "xây dựng hạ tầng",
+        "truyền tải điện",
+        "lưới điện",
+        "thi công đường dây",
+        "EPC điện"
+      ]
+    }
+  },
+  "MBB": {
+    "sector": "BANKING",
+    "company_name": "Ngân hàng TMCP Quân đội (MB Bank)"
+  },
+  "ACB": {
+    "sector": "BANKING",
+    "company_name": "Ngân hàng TMCP Á Châu (ACB)"
   }
 }
