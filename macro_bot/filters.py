@@ -17,6 +17,14 @@ DERIV_KW = [
     "chpg",
 ]
 
+# Generic/location aliases that frequently match non-HPG news (e.g. BSR Dung Quất).
+# These must be accompanied by an extra HPG-specific signal to count as relevant.
+WEAK_ALIASES = {
+    "dung quất",
+    "kkt dung quất",
+    "khu kinh tế dung quất",
+}
+
 
 def is_derivative_news(title: str, summary: str) -> bool:
     text = normalize_text(f"{title} {strip_html(summary)}")
@@ -72,13 +80,24 @@ def is_stock_news(title: str, stock_cfg: dict[str, Any], summary: str = "") -> b
         a = (a or "").strip()
         if not a:
             continue
+        # For weak aliases (generic location/common words), require an extra stock-specific
+        # context signal to avoid misclassifying other companies' news (e.g. BSR Dung Quất).
+        a_norm = normalize_text(a)
+        a_na = normalize_text(strip_accents(a))
         if len(a) <= 5 and a.isalnum():
             if contains_code(raw, a) or contains_code(strip_accents(raw), a):
                 return True
             continue
-        a_norm = normalize_text(a)
-        a_na = normalize_text(strip_accents(a))
         if _contains_phrase(text, a_norm) or _contains_phrase(text_na, a_na):
+            if a_norm in WEAK_ALIASES or a_na in WEAK_ALIASES:
+                # Need at least one additional HPG signal besides the weak alias itself.
+                return _has_company_context_signal(
+                    raw,
+                    symbol,
+                    aliases,
+                    context_kws,
+                    exclude_aliases={a, "Dung Quất", "KKT Dung Quất", "Khu kinh tế Dung Quất"},
+                )
             return True
 
     # Contextual RAG profile: economic drivers that can impact this stock.
@@ -108,7 +127,7 @@ def build_google_queries(
         terms.append(company)
     for a in aliases:
         a = (a or "").strip()
-        if a:
+        if a and normalize_text(a) not in WEAK_ALIASES and normalize_text(strip_accents(a)) not in WEAK_ALIASES:
             terms.append(a)
     # Include a small subset of contextual driver keywords in search queries
     # to capture upstream/downstream signals without making queries too noisy.
@@ -219,6 +238,7 @@ def _has_company_context_signal(
     symbol: str,
     aliases: list[str],
     context_kws: list[str],
+    exclude_aliases: set[str] | None = None,
 ) -> bool:
     """
     Guard against false positives like 'Khánh Hòa phát động' matching 'Hòa Phát'.
@@ -230,9 +250,14 @@ def _has_company_context_signal(
 
     txt = normalize_text(raw)
     txt_na = normalize_text(strip_accents(raw))
+    exclude_aliases = exclude_aliases or set()
+    exclude_norm = {normalize_text(a) for a in exclude_aliases if a}
+    exclude_norm_na = {normalize_text(strip_accents(a)) for a in exclude_aliases if a}
     for a in aliases:
         aa = (a or "").strip()
         if not aa:
+            continue
+        if normalize_text(aa) in exclude_norm or normalize_text(strip_accents(aa)) in exclude_norm_na:
             continue
         if len(aa) <= 5 and aa.isalnum():
             if contains_code(raw, aa):
