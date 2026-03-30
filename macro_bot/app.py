@@ -16,6 +16,8 @@ from .filters import build_google_queries, is_derivative_news, is_stock_news, is
 from .notifiers import TelegramNotifier
 from .sources import GoogleNewsRssSource, NewsItem
 from .state import JsonFileStateStore
+from .telegram_commands import TelegramCommandProcessor
+from .watchlist import WatchlistStore
 from .text import fingerprint, snippet_adds_value, strip_html
 from .text import fingerprint_by_url
 from .text import fingerprint_by_title_core
@@ -124,7 +126,40 @@ class MacroBotApp:
         count = 0
         seen_fp: set[str] = set()
 
-        for stock_cfg in cfg.stocks:
+        # Telegram commands: allow controlling watchlist via messages like "VNM on/off".
+        watch_state = None
+        if cfg.telegram_commands and cfg.telegram_token and cfg.telegram_chat_id:
+            store = WatchlistStore(path=cfg.watchlist_file)
+            proc = TelegramCommandProcessor(
+                token=cfg.telegram_token,
+                chat_id=cfg.telegram_chat_id,
+                store=store,
+                timeout_sec=cfg.article_fetch_timeout_sec,
+            )
+            res = proc.sync(notifier=None if cfg.dry_run else self.notifier)
+            watch_state = res.new_state
+            if watch_state.enabled_symbols:
+                print(f"Watchlist enabled symbols: {watch_state.enabled_symbols}")
+
+        # If watchlist is present and non-empty, limit scan to enabled symbols.
+        if watch_state and watch_state.enabled_symbols:
+            enabled = set(watch_state.enabled_symbols)
+            base = list(cfg.stocks or [])
+            kept: list[dict] = []
+            for s in base:
+                sym = str(s.get("symbol", "") or "").strip().upper()
+                if sym and sym in enabled:
+                    kept.append(s)
+            # Add any enabled symbol not in base list as "symbol-only" stock.
+            known = {str(s.get("symbol", "") or "").strip().upper() for s in kept}
+            for sym in watch_state.enabled_symbols:
+                if sym and sym not in known:
+                    kept.append({"symbol": sym, "company": "", "aliases": []})
+            cfg_stocks = kept
+        else:
+            cfg_stocks = list(cfg.stocks or [])
+
+        for stock_cfg in cfg_stocks:
             symbol = stock_cfg.get("symbol", "N/A")
             company = stock_cfg.get("company", "") or ""
             print(f"=== QUÉT TIN CHO {symbol} ===")

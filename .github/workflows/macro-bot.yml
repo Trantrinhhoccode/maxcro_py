@@ -32,6 +32,15 @@ jobs:
           search_artifacts: true
           if_no_artifact_found: ignore
 
+      - name: Download watchlist (run trước)
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: macro-bot.yml
+          name: watchlist
+          path: .
+          search_artifacts: true
+          if_no_artifact_found: ignore
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -48,6 +57,8 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SENT_NEWS_FILE: sent_news.json
+          WATCHLIST_FILE: watchlist.json
+          TELEGRAM_COMMANDS: "1"
           # Tuỳ chọn
           LOOKBACK_DAYS: "30"
           RECENT_DAYS: "3"
@@ -62,4 +73,11 @@ jobs:
         with:
           name: sent-news
           path: sent_news.json
+          if-no-files-found: ignore
+
+      - name: Upload watchlist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: watchlist
+          path: watchlist.json
           if-no-files-found: ignore

@@ -44,6 +44,8 @@ class BotConfig:
     resolve_final_url: bool
     allow_wide_query: bool
     company_profiles_file: str
+    watchlist_file: str
+    telegram_commands: bool
 
     @staticmethod
     def from_env() -> "BotConfig":
@@ -111,6 +113,9 @@ class BotConfig:
         )
         stocks = _merge_company_profiles(stocks, company_profiles_file)
 
+        watchlist_file = os.getenv("WATCHLIST_FILE", "watchlist.json").strip() or "watchlist.json"
+        telegram_commands = _env_bool("TELEGRAM_COMMANDS", True)
+
         return BotConfig(
             gemini_api_key=gemini_api_key,
             telegram_token=telegram_token,
@@ -130,6 +135,8 @@ class BotConfig:
             resolve_final_url=_env_bool("RESOLVE_FINAL_URL", True),
             allow_wide_query=_env_bool("ALLOW_WIDE_QUERY", False),
             company_profiles_file=company_profiles_file,
+            watchlist_file=watchlist_file,
+            telegram_commands=telegram_commands,
         )
 
 
