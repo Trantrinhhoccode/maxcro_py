@@ -125,6 +125,7 @@ class MacroBotApp:
 
         count = 0
         seen_fp: set[str] = set()
+        per_stock_count: dict[str, int] = {}
 
         # Telegram commands: allow controlling watchlist via messages like "VNM on/off".
         watch_state = None
@@ -160,9 +161,10 @@ class MacroBotApp:
             cfg_stocks = list(cfg.stocks or [])
 
         for stock_cfg in cfg_stocks:
-            symbol = stock_cfg.get("symbol", "N/A")
+            symbol = str(stock_cfg.get("symbol", "N/A") or "N/A").strip().upper()
             company = stock_cfg.get("company", "") or ""
             print(f"=== QUÉT TIN CHO {symbol} ===")
+            per_stock_count.setdefault(symbol, 0)
 
             queries = build_google_queries(
                 stock_cfg,
@@ -172,10 +174,15 @@ class MacroBotApp:
             print(f"Queries: {queries}")
 
             for q in queries:
+                if per_stock_count.get(symbol, 0) >= cfg.max_send_per_stock:
+                    print(f"Đã đạt giới hạn {cfg.max_send_per_stock} tin cho {symbol} trong 1 lần chạy.")
+                    break
                 print(f"Đang tìm: {q} ...")
                 items = self.source.fetch(q, max_items=cfg.scan_per_feed)
                 items = sorted(items, key=lambda x: x.published_at or datetime.min, reverse=True)
                 for item in items:
+                    if per_stock_count.get(symbol, 0) >= cfg.max_send_per_stock:
+                        break
                     if not is_within_days(item.published_at, cfg.lookback_days):
                         continue
                     if not is_within_days(item.published_at, cfg.recent_days):
@@ -355,8 +362,9 @@ class MacroBotApp:
                             seen_fp.add(fp_event)
                             seen_fp.update(fp_event_combos)
                             count += 1
+                            per_stock_count[symbol] = per_stock_count.get(symbol, 0) + 1
                             time.sleep(3)
-                        if count >= cfg.max_send_per_run:
+                        if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:
                             print(f"Đã đạt giới hạn gửi {cfg.max_send_per_run} tin trong 1 lần chạy.")
                             break
                         continue
@@ -412,13 +420,14 @@ class MacroBotApp:
                         seen_fp.add(fp_event)
                         seen_fp.update(fp_event_combos)
                         count += 1
+                        per_stock_count[symbol] = per_stock_count.get(symbol, 0) + 1
                         time.sleep(3)
 
-                    if count >= cfg.max_send_per_run:
+                    if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:
                         print(f"Đã đạt giới hạn gửi {cfg.max_send_per_run} tin trong 1 lần chạy.")
                         break
 
-                if count >= cfg.max_send_per_run:
+                if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:
                     break
 
         if count == 0:

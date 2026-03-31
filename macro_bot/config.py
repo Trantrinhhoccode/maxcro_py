@@ -32,6 +32,7 @@ class BotConfig:
     recent_days: int
     scan_per_feed: int
     max_send_per_run: int
+    max_send_per_stock: int
 
     dry_run: bool
     always_notify_no_news: bool
@@ -125,7 +126,9 @@ class BotConfig:
             lookback_days=_env_int("LOOKBACK_DAYS", 30),
             recent_days=_env_int("RECENT_DAYS", 3),
             scan_per_feed=_env_int("SCAN_PER_FEED", 200),
-            max_send_per_run=_env_int("MAX_SEND_PER_RUN", 5),
+            # max_send_per_run is a global safety cap. Set high by default; prefer per-stock cap.
+            max_send_per_run=_env_int("MAX_SEND_PER_RUN", 50),
+            max_send_per_stock=_env_int("MAX_SEND_PER_STOCK", 3),
             dry_run=_env_bool("DRY_RUN", False),
             always_notify_no_news=_env_bool("ALWAYS_NOTIFY_NO_NEWS", True),
             genai_model=os.getenv("GENAI_MODEL", "gemma-3-27b-it").strip(),
