@@ -125,16 +125,30 @@ def build_google_queries(
         terms.append(symbol)
     if company:
         terms.append(company)
+    # Keep query compact: too many OR terms can degrade Google RSS relevance
+    # and often returns stale/irrelevant results.
+    alias_added = 0
     for a in aliases:
         a = (a or "").strip()
-        if a and normalize_text(a) not in WEAK_ALIASES and normalize_text(strip_accents(a)) not in WEAK_ALIASES:
-            terms.append(a)
-    # Include a small subset of contextual driver keywords in search queries
-    # to capture upstream/downstream signals without making queries too noisy.
-    for k in _contextual_driver_keywords(stock_cfg)[:8]:
-        kk = (k or "").strip()
-        if kk:
-            terms.append(kk)
+        if not a:
+            continue
+        if normalize_text(a) in WEAK_ALIASES or normalize_text(strip_accents(a)) in WEAK_ALIASES:
+            continue
+        terms.append(a)
+        alias_added += 1
+        if alias_added >= 4:
+            break
+
+    # Deduplicate while preserving order.
+    seen_terms: set[str] = set()
+    compact_terms: list[str] = []
+    for t in terms:
+        key = normalize_text(t)
+        if not key or key in seen_terms:
+            continue
+        seen_terms.add(key)
+        compact_terms.append(t)
+    terms = compact_terms
 
     if not terms:
         return []
