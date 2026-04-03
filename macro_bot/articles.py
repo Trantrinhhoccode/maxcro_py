@@ -480,7 +480,7 @@ class ArticleFetcher:
                     else:
                         loose_len_lt_min += 1
 
-        text = self._extract_text(html)
+        text = self._extract_text(html, page_url=final_url)
         self._debug(f"Extracted text length: {len(text)} from {final_url}")
 
         # Fallback variant: try output=1 if base endpoint returned nothing.
@@ -496,7 +496,7 @@ class ArticleFetcher:
                     )
                     resp2.raise_for_status()
                     html2 = resp2.text or ""
-                    text2 = self._extract_text(html2)
+                    text2 = self._extract_text(html2, page_url=output_variant)
                     self._debug(
                         f"Extracted text length: {len(text2)} from output_variant={output_variant}"
                     )
@@ -900,7 +900,7 @@ class ArticleFetcher:
         except Exception:
             return ""
 
-        text = self._extract_text(html)
+        text = self._extract_text(html, page_url=url)
         if text and len(text) > self.max_chars:
             text = text[: self.max_chars] + "..."
         self._debug(f"[real_url] Extracted text length: {len(text)} from {url}")
@@ -991,10 +991,48 @@ class ArticleFetcher:
 
         return ""
 
-    def _extract_text(self, html: str) -> str:
+    def _trim_vneconomy_sidebar_noise(self, text: str) -> str:
+        """
+        VnEconomy often appends site-wide widgets (e.g. 'Dòng sự kiện', Đại hội XIV promo)
+        to the same DOM as the article. Full-page text extraction pulls that noise in,
+        which misleads the LLM. Cut from the first clear footer/widget marker.
+
+        Note: BeautifulSoup get_text(" ") collapses to one line; patterns must not rely on \\n.
+        """
+        t = (text or "").strip()
+        if not t:
+            return t
+        patterns = [
+            r"\s*###\s*Dòng sự kiện\b",
+            r"\s*##\s*Dòng sự kiện\b",
+            r"\s*#\s*Dòng sự kiện\b",
+            r"\bĐảng Cộng sản Việt Nam\s*-\s*Đại hội XIV\b",
+            r"\s*###\s*Đọc thêm\b",
+            r"\s*##\s*Đọc thêm\b",
+            r"\s*###\s*Đọc nhiều nhất\b",
+            r"\s*##\s*Đọc nhiều nhất\b",
+            r"\s*###\s*Bài viết mới nhất\b",
+            r"\s*##\s*Bài viết mới nhất\b",
+        ]
+        cut_at = len(t)
+        for pat in patterns:
+            m = re.search(pat, t, flags=re.IGNORECASE)
+            if m:
+                cut_at = min(cut_at, m.start())
+        if cut_at < len(t):
+            t = t[:cut_at].strip()
+        return t
+
+    def _extract_text(self, html: str, page_url: str | None = None) -> str:
         html = html or ""
         if not html.strip():
             return ""
+
+        host = ""
+        try:
+            host = (urlparse(page_url or "").netloc or "").lower()
+        except Exception:
+            host = ""
 
         if HAS_BS4 and BeautifulSoup is not None:
             soup = BeautifulSoup(html, "html.parser")
@@ -1014,17 +1052,42 @@ class ArticleFetcher:
                 "#content",
                 "main",
             ]
+            # VnEconomy (Hemera): prefer inner article body; full <article> may still include widgets.
+            if host.endswith("vneconomy.vn"):
+                candidates = [
+                    ".detail__content",
+                    ".article-detail .detail__content",
+                    "article .detail__content",
+                    ".article-detail",
+                    ".post-detail",
+                    ".entry-content",
+                    "article",
+                    ".ArticleContent",
+                    ".article__content",
+                    ".article-body",
+                    ".content-detail",
+                    ".article-content",
+                    ".DetailContent",
+                    ".detail-content",
+                    "#content",
+                    "main",
+                ]
+
             for sel in candidates:
                 node = soup.select_one(sel)
                 if node:
                     txt = node.get_text(" ", strip=True)
                     txt = re.sub(r"\s+", " ", txt).strip()
                     if len(txt) >= 400:
+                        if host.endswith("vneconomy.vn"):
+                            txt = self._trim_vneconomy_sidebar_noise(txt)
                         return txt
 
             body = soup.body or soup
             txt = body.get_text(" ", strip=True)
             txt = re.sub(r"\s+", " ", txt).strip()
+            if host.endswith("vneconomy.vn"):
+                txt = self._trim_vneconomy_sidebar_noise(txt)
             return txt
 
         # Fallback without bs4 (rough).
@@ -1033,6 +1096,8 @@ class ArticleFetcher:
         txt = re.sub(r"<[^>]+>", " ", txt)
         txt = txt.replace("&nbsp;", " ").replace("\xa0", " ")
         txt = re.sub(r"\s+", " ", txt).strip()
+        if host.endswith("vneconomy.vn"):
+            txt = self._trim_vneconomy_sidebar_noise(txt)
         return txt
 
     def _debug(self, msg: str) -> None:
