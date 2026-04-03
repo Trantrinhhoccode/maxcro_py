@@ -10,6 +10,7 @@ from urllib.parse import urlparse, quote_plus
 
 from macro_bot.articles import ArticleFetcher
 from macro_bot.config import BotConfig
+from macro_bot.feed_entry_urls import publisher_urls_from_feed_entry
 from macro_bot.filters import build_google_queries, is_derivative_news, is_stock_news, is_within_days
 from macro_bot.sources import GoogleNewsRssSource
 from macro_bot.text import (
@@ -184,9 +185,11 @@ def main() -> int:
                     ]
                 )
 
-                extra_candidate_urls: list[str] = []
-                # Try to extract direct publisher URLs from RSS entry raw.
-                # This avoids depending on parsing Google News wrapper HTML.
+                extra_candidate_urls: list[str] = publisher_urls_from_feed_entry(
+                    getattr(item, "raw", None),
+                    cfg.google_sources or [],
+                )
+                # Also scan stringified RSS fields for URLs (backup if links list is empty).
                 try:
                     raw = getattr(item, "raw", None)
                     if raw:

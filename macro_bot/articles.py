@@ -96,6 +96,17 @@ class ArticleFetcher:
         except Exception:
             return ""
 
+    @staticmethod
+    def _strip_query(url: str) -> str:
+        """
+        Decoder can be sensitive to extra query params (hl/gl/ceid/oc).
+        Try decoding with the base URL too.
+        """
+        u = (url or "").strip()
+        if not u:
+            return ""
+        return u.split("?", 1)[0]
+
     def _expanded_decoded_url_candidates(self, decoded_url: str) -> list[str]:
         out: list[str] = []
         seen: set[str] = set()
@@ -325,6 +336,10 @@ class ArticleFetcher:
         # Google News RSS thường trỏ tới "wrapper" (news.google.com) không chứa nội dung.
         # Thử trích nhiều URL ứng viên từ HTML wrapper rồi lần lượt fetch lại đến khi có text đủ dài.
         decoded_url = self._decode_google_wrapper_url(final_url)
+        if not decoded_url:
+            base = self._strip_query(final_url)
+            if base and base != final_url:
+                decoded_url = self._decode_google_wrapper_url(base)
         if decoded_url:
             #region agent log ndjson-hypothesis
             _ndjson_log(
@@ -869,6 +884,13 @@ class ArticleFetcher:
                 return ""
             html = resp.text or ""
             final_u = resp.url or url
+            try:
+                host = (urlparse(final_u).netloc or "").lower()
+            except Exception:
+                host = ""
+            # Vietstock static hosts often serve assets or shells; do not treat as articles.
+            if host.endswith("vietstock.vn") and host.split(".")[0].startswith("static"):
+                return ""
             if self._is_listing_like_url(final_u):
                 #region agent log ndjson-hypothesis
                 _ndjson_log(

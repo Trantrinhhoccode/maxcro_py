@@ -12,6 +12,7 @@ import requests
 from .analyzer import GeminiAnalyzer
 from .articles import ArticleFetcher
 from .config import BotConfig
+from .feed_entry_urls import publisher_urls_from_feed_entry
 from .filters import build_google_queries, is_derivative_news, is_stock_news, is_within_days
 from .notifiers import TelegramNotifier
 from .sources import GoogleNewsRssSource, NewsItem
@@ -251,9 +252,11 @@ class MacroBotApp:
                         ]
                     )
 
-                    extra_candidate_urls: list[str] = []
-                    # Try to extract direct publisher URLs from RSS entry raw.
-                    # This avoids depending on parsing Google News wrapper HTML.
+                    extra_candidate_urls: list[str] = publisher_urls_from_feed_entry(
+                        getattr(item, "raw", None),
+                        cfg.google_sources or [],
+                    )
+                    # Also scan stringified RSS fields for URLs (backup if links list is empty).
                     try:
                         raw = getattr(item, "raw", None)
                         if raw:
