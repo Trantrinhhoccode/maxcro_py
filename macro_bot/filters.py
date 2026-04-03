@@ -10,6 +10,9 @@ from .text import contains_code, normalize_text, strip_accents, strip_html
 DERIV_KW = [
     "chứng quyền",
     "cw.",
+    "cw ",
+    "cw-",
+    "cw:",
     "cw/",
     "covered warrant",
     "phái sinh",
