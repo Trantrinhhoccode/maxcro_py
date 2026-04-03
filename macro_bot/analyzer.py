@@ -42,21 +42,22 @@ Nếu bài có nêu con số cụ thể (ví dụ dự báo giá thép quý 2, %
 Không lấp đoạn bằng khẩu hiệu chung chung hoặc kiến thức bên ngoài bài.
 
 Yêu cầu output (Tiếng Việt, rõ ràng, đủ thông tin):
-Trả về plain text, KHÔNG dùng markdown (không dùng **, __, ##, *, -, >, `).
-Dùng đúng cấu trúc sau (mỗi mục bắt đầu bằng số và dấu ngoặc như mẫu):
+Trả về plain text. KHÔNG dùng markdown (không dùng **, __, ##, *, >, `).
+Trình bày theo dòng: mỗi ý trong từng mục phải là một dòng riêng, bắt đầu bằng ký tự gạch đầu dòng `•` (dấu chấm tròn), sau đó một khoảng trắng rồi nội dung. Không dùng dấu `-` đầu dòng.
 
-1) Tóm tắt và trích xuất thông tin quan trọng:
-Dựa trên toàn bộ phần "Nội dung bài báo" ở trên (ưu tiên nội dung đã trích, không chỉ tiêu đề), hãy nêu đầy đủ:
-sự kiện/diễn biến chính; các số liệu cụ thể nếu có (doanh thu, lợi nhuận, %, giá, khối lượng, mức tăng giảm, thời hạn, địa điểm);
-các bên liên quan (công ty, cơ quan, nhân vật được nhắc); cam kết, kế hoạch, chính sách hoặc trích dẫn đáng chú ý;
-và mối liên hệ trực tiếp hoặc gián tiếp với mã {symbol}.
-Viết khoảng 4 đến 10 câu (hoặc tương đương), đủ để người đọc nắm các điểm then chốt trong bài mà không bị lược quá mức. Nếu bài có nhiều luồng thông tin, nêu rõ từng luồng.
+Dùng đúng khung sau (giữ số mục 1) 2) 3) 4) như tiêu đề phần; bên dưới mỗi tiêu đề là các dòng `• ...`):
 
-2) Mức độ ảnh hưởng: Thấp / Trung bình / Cao. Nêu ngắn gọn lý do, chỉ dựa trên nội dung bài.
+1) Tóm tắt và trích xuất thông tin quan trọng
+Dựa trên phần "Nội dung bài báo" (ưu tiên nội đã trích). Chia nhỏ thành 5 đến 12 dòng `•`, mỗi dòng một ý ngắn gọn: sự kiện chính; số liệu có trong bài (%, giá, kỳ so sánh…); bên liên quan; liên hệ với mã {symbol}. Nếu bài có nhiều luồng tin, dùng thêm vài dòng `•` để tách luồng.
 
-3) Điều cần theo dõi tiếp: 3 đến 5 ý, ngăn cách bằng dấu chấm phẩy (;).
+2) Mức độ ảnh hưởng
+Dòng đầu: ghi rõ Thấp / Trung bình / Cao. Tiếp theo 1 đến 3 dòng `•` giải thích lý do, chỉ dựa trên nội dung bài.
 
-4) Rủi ro/giả định: 1 đến 3 ý ngắn (nếu có), có thể là rủi ro thị trường chung nhưng không được gán cho bài những sự kiện không có trong bài.
+3) Điều cần theo dõi tiếp
+3 đến 5 dòng `•`, mỗi dòng một ý riêng.
+
+4) Rủi ro hoặc giả định
+1 đến 3 dòng `•` (nếu không có thì ghi một dòng `• Không có rủi ro đặc biệt từ nội dung bài.`). Không gán cho bài sự kiện không có trong bài.
 """.strip()
 
         response = self._model.generate_content(
@@ -90,13 +91,22 @@ Mọi con số, %, dự báo, so sánh cùng kỳ phải lấy từ bài; nếu 
 Phần suy luận chỉ được mở rộng từ dữ kiện đã có trong bài, không đưa "kiến thức nền" làm sự kiện đã xảy ra.
 
 Yêu cầu output (Tiếng Việt, rõ ràng, đủ thông tin):
-Trả về plain text, KHÔNG dùng markdown (không dùng **, __, ##, *, -, >, `).
+Trả về plain text. KHÔNG dùng markdown (không dùng **, __, ##, *, >, `).
+Trình bày theo dòng: trong mỗi mục, mỗi ý là một dòng bắt đầu bằng `• ` (dấu chấm tròn + khoảng trắng). Không dùng dấu `-` đầu dòng.
 
-Dùng đúng cấu trúc sau:
-1) Phân tích sâu: 6-14 câu, bám sát dữ kiện; trích đầy đủ số liệu có trong bài (nếu có).
-2) Tác động lên {symbol}: giải thích cơ chế ảnh hưởng (ngắn gọn nhưng cụ thể), chỉ dựa trên nội dung bài.
-3) Mốc thời gian & hạng mục cần theo dõi tiếp: 3-6 ý, ngăn cách bằng dấu chấm phẩy (;).
-4) Rủi ro/giả định: 1-3 ý ngắn, không gán cho bài sự kiện không có trong bài.
+Dùng đúng khung sau:
+
+1) Phân tích sâu
+8 đến 18 dòng `•`, bám sát dữ kiện trong bài; ưu tiên liệt kê số liệu, tên tổ chức, mốc thời gian có trong bài.
+
+2) Tác động lên {symbol}
+4 đến 8 dòng `•`, giải thích cơ chế ảnh hưởng, chỉ dựa trên nội dung bài.
+
+3) Mốc thời gian và hạng mục cần theo dõi tiếp
+4 đến 8 dòng `•`, mỗi dòng một ý.
+
+4) Rủi ro hoặc giả định
+2 đến 5 dòng `•`, không gán cho bài sự kiện không có trong bài.
 """.strip()
 
         response = self._model.generate_content(
