@@ -17,6 +17,12 @@ from .notifiers import TelegramNotifier
 from .sources import GoogleNewsRssSource, NewsItem
 from .state import JsonFileStateStore
 from .telegram_commands import TelegramCommandProcessor
+from .telegram_deep_dive import (
+    DeepDiveItem,
+    TelegramDeepDiveCallbackProcessor,
+    TelegramDeepDiveStore,
+    TelegramDeepDiveUpdateStateStore,
+)
 from .watchlist import WatchlistStore
 from .text import fingerprint, snippet_adds_value, strip_html
 from .text import fingerprint_by_url
@@ -126,6 +132,26 @@ class MacroBotApp:
         count = 0
         seen_fp: set[str] = set()
         per_stock_count: dict[str, int] = {}
+
+        deep_dive_store = TelegramDeepDiveStore(cfg.deep_dive_store_file) if cfg.deep_dive_enabled else None
+        deep_dive_update_store = (
+            TelegramDeepDiveUpdateStateStore(cfg.deep_dive_update_state_file) if cfg.deep_dive_enabled else None
+        )
+        deep_dive_proc = (
+            TelegramDeepDiveCallbackProcessor(
+                token=cfg.telegram_token,
+                chat_id=cfg.telegram_chat_id,
+                analyzer=self.analyzer,
+                deep_dive_store=deep_dive_store,  # type: ignore[arg-type]
+                update_state_store=deep_dive_update_store,  # type: ignore[arg-type]
+                max_age_days=cfg.deep_dive_max_age_days,
+            )
+            if cfg.deep_dive_enabled
+            else None
+        )
+        if deep_dive_proc:
+            # Handle any pending Deep dive button clicks (from previous messages).
+            deep_dive_proc.sync(notifier=self.notifier)
 
         # Telegram commands: allow controlling watchlist via messages like "VNM on/off".
         watch_state = None
@@ -335,7 +361,10 @@ class MacroBotApp:
                         )
                         sent_ok = False
                         try:
-                            sent_ok = self.notifier.send_markdown(msg)
+                            reply_markup = {
+                                "inline_keyboard": [[{"text": "Deep dive", "callback_data": f"deep_dive:{fp}"}]]
+                            }
+                            sent_ok = self.notifier.send_markdown(msg, reply_markup=reply_markup)
                         except Exception as e:
                             print(f"Lỗi gửi Telegram: {e}")
 
@@ -363,6 +392,23 @@ class MacroBotApp:
                             seen_fp.update(fp_event_combos)
                             count += 1
                             per_stock_count[symbol] = per_stock_count.get(symbol, 0) + 1
+
+                            if deep_dive_store is not None:
+                                try:
+                                    deep_dive_store.save_item(
+                                        DeepDiveItem(
+                                            symbol=symbol,
+                                            title=item.title or "",
+                                            final_url=final_url or item.link or "",
+                                            snippet_html=item.summary or "",
+                                            article_text="",
+                                            company=company,
+                                            fp=fp,
+                                            saved_at_iso=now_iso,
+                                        )
+                                    )
+                                except Exception:
+                                    pass
                             time.sleep(3)
                         if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:
                             print(f"Đã đạt giới hạn gửi {cfg.max_send_per_run} tin trong 1 lần chạy.")
@@ -390,7 +436,10 @@ class MacroBotApp:
 
                     sent_ok = False
                     try:
-                        sent_ok = self.notifier.send_markdown(msg)
+                        reply_markup = {
+                            "inline_keyboard": [[{"text": "Deep dive", "callback_data": f"deep_dive:{fp}"}]]
+                        }
+                        sent_ok = self.notifier.send_markdown(msg, reply_markup=reply_markup)
                     except Exception as e:
                         print(f"Lỗi gửi Telegram: {e}")
 
@@ -421,6 +470,23 @@ class MacroBotApp:
                         seen_fp.update(fp_event_combos)
                         count += 1
                         per_stock_count[symbol] = per_stock_count.get(symbol, 0) + 1
+
+                        if deep_dive_store is not None:
+                            try:
+                                deep_dive_store.save_item(
+                                    DeepDiveItem(
+                                        symbol=symbol,
+                                        title=item.title or "",
+                                        final_url=final_url or item.link or "",
+                                        snippet_html=item.summary or "",
+                                        article_text=article_text or "",
+                                        company=company,
+                                        fp=fp,
+                                        saved_at_iso=now_iso,
+                                    )
+                                )
+                            except Exception:
+                                pass
                         time.sleep(3)
 
                     if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:

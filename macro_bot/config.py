@@ -47,6 +47,10 @@ class BotConfig:
     company_profiles_file: str
     watchlist_file: str
     telegram_commands: bool
+    deep_dive_enabled: bool
+    deep_dive_store_file: str
+    deep_dive_update_state_file: str
+    deep_dive_max_age_days: int
 
     @staticmethod
     def from_env() -> "BotConfig":
@@ -116,6 +120,10 @@ class BotConfig:
 
         watchlist_file = os.getenv("WATCHLIST_FILE", "watchlist.json").strip() or "watchlist.json"
         telegram_commands = _env_bool("TELEGRAM_COMMANDS", True)
+        deep_dive_enabled = _env_bool("DEEP_DIVE_ENABLED", True)
+        deep_dive_store_file = os.getenv("DEEP_DIVE_STORE_FILE", "telegram_deep_dive.json").strip() or "telegram_deep_dive.json"
+        deep_dive_update_state_file = os.getenv("DEEP_DIVE_UPDATE_STATE_FILE", "telegram_deep_dive_updates.json").strip() or "telegram_deep_dive_updates.json"
+        deep_dive_max_age_days = _env_int("DEEP_DIVE_MAX_AGE_DAYS", 7)
 
         return BotConfig(
             gemini_api_key=gemini_api_key,
@@ -140,6 +148,10 @@ class BotConfig:
             company_profiles_file=company_profiles_file,
             watchlist_file=watchlist_file,
             telegram_commands=telegram_commands,
+            deep_dive_enabled=deep_dive_enabled,
+            deep_dive_store_file=deep_dive_store_file,
+            deep_dive_update_state_file=deep_dive_update_state_file,
+            deep_dive_max_age_days=deep_dive_max_age_days,
         )
 
 

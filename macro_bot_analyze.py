@@ -16,6 +16,12 @@ from macro_bot.text import fingerprint, event_combo_fingerprints
 from macro_bot.text import strip_html, snippet_adds_value
 from macro_bot.text import normalize_text
 from macro_bot.text import canonicalize_url
+from macro_bot.telegram_deep_dive import (
+    DeepDiveItem,
+    TelegramDeepDiveCallbackProcessor,
+    TelegramDeepDiveStore,
+    TelegramDeepDiveUpdateStateStore,
+)
 
 
 def _ndjson_iter(path: str):
@@ -37,6 +43,24 @@ def main() -> int:
 
     notifier = TelegramNotifier(token=cfg.telegram_token, chat_id=cfg.telegram_chat_id, dry_run=cfg.dry_run)
     analyzer = GeminiAnalyzer(api_key=cfg.gemini_api_key, model_name=cfg.genai_model) if cfg.gemini_api_key else None
+
+    deep_dive_store = TelegramDeepDiveStore(cfg.deep_dive_store_file) if cfg.deep_dive_enabled else None
+    deep_dive_update_store = TelegramDeepDiveUpdateStateStore(cfg.deep_dive_update_state_file) if cfg.deep_dive_enabled else None
+    deep_dive_proc = (
+        TelegramDeepDiveCallbackProcessor(
+            token=cfg.telegram_token,
+            chat_id=cfg.telegram_chat_id,
+            analyzer=analyzer,
+            deep_dive_store=deep_dive_store,  # type: ignore[arg-type]
+            update_state_store=deep_dive_update_store,  # type: ignore[arg-type]
+            max_age_days=cfg.deep_dive_max_age_days,
+        )
+        if cfg.deep_dive_enabled
+        else None
+    )
+    if deep_dive_proc:
+        # Handle any pending Deep dive button clicks (from previous messages).
+        deep_dive_proc.sync(notifier=notifier)
 
     print(f"--- ANALYZER: BẮT ĐẦU PHÂN TÍCH ({candidates_file}) ---")
     print(f"Đã load {len(sent_fps)} fingerprints đã gửi.")
@@ -88,7 +112,10 @@ def main() -> int:
                 ]
             )
             try:
-                sent_ok = notifier.send_markdown(msg)
+                reply_markup = {
+                    "inline_keyboard": [[{"text": "Deep dive", "callback_data": f"deep_dive:{fp}"}]]
+                }
+                sent_ok = notifier.send_markdown(msg, reply_markup=reply_markup)
             except Exception as e:
                 print(f"Lỗi gửi Telegram: {e}")
         else:
@@ -114,7 +141,10 @@ def main() -> int:
             msg = "\n".join(body_lines)
 
             try:
-                sent_ok = notifier.send_markdown(msg)
+                reply_markup = {
+                    "inline_keyboard": [[{"text": "Deep dive", "callback_data": f"deep_dive:{fp}"}]]
+                }
+                sent_ok = notifier.send_markdown(msg, reply_markup=reply_markup)
             except Exception as e:
                 print(f"Lỗi gửi Telegram: {e}")
 
@@ -127,6 +157,24 @@ def main() -> int:
             seen_keys.update(candidate_keys)
             per_stock_count[symbol] = per_stock_count.get(symbol, 0) + 1
             sent_count += 1
+
+            # Save payload for Deep dive button (if enabled).
+            if deep_dive_store is not None:
+                try:
+                    deep_dive_store.save_item(
+                        DeepDiveItem(
+                            symbol=symbol,
+                            title=title,
+                            final_url=final_url or link,
+                            snippet_html=snippet_html,
+                            article_text=article_text,
+                            company=cand.get("company", "") or "",
+                            fp=fp,
+                            saved_at_iso=now_iso,
+                        )
+                    )
+                except Exception:
+                    pass
             time.sleep(3)
 
         if max_send_per_run > 0 and sent_count >= max_send_per_run:

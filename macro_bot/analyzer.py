@@ -59,3 +59,38 @@ Viết khoảng 4 đến 10 câu (hoặc tương đương), đủ để người
         )
         return (response.text or "").strip()
 
+    def deep_dive(
+        self,
+        *,
+        symbol: str,
+        company: str,
+        title: str,
+        snippet_html: str,
+        article_text: str,
+        source_url: str,
+    ) -> str:
+        prompt = f"""
+Bạn là chuyên gia phân tích doanh nghiệp/chứng khoán Việt Nam.
+Hãy tạo bản phân tích DEEP DIVE chi tiết hơn (dựa ưu tiên vào toàn bộ "Nội dung bài báo") và đánh giá ảnh hưởng đến cổ phiếu {symbol} {f'({company})' if company else ''}.
+
+Tiêu đề: {title}
+Snippet/RSS snippet (nếu có): {strip_html(snippet_html)}
+Nội dung bài báo (đã trích): {article_text or '[Không trích được nội dung, hãy dựa trên tiêu đề và snippet]'}
+Link: {source_url}
+
+Yêu cầu output (Tiếng Việt, rõ ràng, đủ thông tin):
+Trả về plain text, KHÔNG dùng markdown (không dùng **, __, ##, *, -, >, `).
+
+Dùng đúng cấu trúc sau:
+1) Phân tích sâu: 6-14 câu, bám sát dữ kiện; trích/suy luận các số liệu nếu có.
+2) Tác động lên {symbol}: giải thích cơ chế ảnh hưởng (ngắn gọn nhưng cụ thể).
+3) Mốc thời gian & hạng mục cần theo dõi tiếp: 3-6 ý, ngăn cách bằng dấu chấm phẩy (;).
+4) Rủi ro/giả định: 1-3 ý ngắn.
+""".strip()
+
+        response = self._model.generate_content(
+            prompt,
+            generation_config={"max_output_tokens": 3072, "temperature": 0.35},
+        )
+        return (response.text or "").strip()
+

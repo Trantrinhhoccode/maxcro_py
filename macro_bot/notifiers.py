@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 import requests
 
 
@@ -10,7 +11,7 @@ class TelegramNotifier:
     chat_id: str
     dry_run: bool = False
 
-    def send_markdown(self, message: str) -> bool:
+    def send_markdown(self, message: str, reply_markup: dict[str, Any] | None = None) -> bool:
         if self.dry_run:
             print("[DRY_RUN] Would send Telegram message:")
             print((message or "")[:1200])
@@ -20,7 +21,9 @@ class TelegramNotifier:
 
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         # Avoid parse_mode issues (Markdown entities) by sending plain text.
-        payload = {"chat_id": self.chat_id, "text": message}
+        payload: dict[str, Any] = {"chat_id": self.chat_id, "text": message}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         resp = requests.post(url, json=payload, timeout=20)
         if 200 <= resp.status_code < 300:
             return True
