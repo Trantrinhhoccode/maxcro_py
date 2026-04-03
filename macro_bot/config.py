@@ -139,7 +139,7 @@ class BotConfig:
             max_send_per_stock=_env_int("MAX_SEND_PER_STOCK", 3),
             dry_run=_env_bool("DRY_RUN", False),
             always_notify_no_news=_env_bool("ALWAYS_NOTIFY_NO_NEWS", True),
-            genai_model=os.getenv("GENAI_MODEL", "gemma-3-27b-it").strip(),
+            genai_model=os.getenv("GENAI_MODEL", "gemma-4-31b-it").strip(),
             sent_news_file=os.getenv("SENT_NEWS_FILE", "sent_news.json").strip() or "sent_news.json",
             article_max_chars=_env_int("ARTICLE_MAX_CHARS", 8000),
             article_fetch_timeout_sec=_env_int("ARTICLE_FETCH_TIMEOUT_SEC", 20),
