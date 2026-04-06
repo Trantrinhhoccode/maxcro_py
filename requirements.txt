@@ -3,6 +3,3 @@ requests
 feedparser
 beautifulsoup4
 googlenewsdecoder
-fastapi
-uvicorn
-google-cloud-firestore

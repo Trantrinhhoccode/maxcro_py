@@ -16,7 +16,7 @@ from .feed_entry_urls import publisher_urls_from_feed_entry
 from .filters import build_google_queries, is_derivative_news, is_stock_news, is_within_days
 from .notifiers import TelegramNotifier
 from .sources import GoogleNewsRssSource, NewsItem
-from .state import JsonFileStateStore, StateStore
+from .state import JsonFileStateStore
 from .telegram_commands import TelegramCommandProcessor
 from .telegram_deep_dive import (
     DeepDiveItem,
@@ -40,7 +40,6 @@ from .text import fingerprint_by_title_signature
 from .text import fingerprint_by_event
 from .text import event_combo_fingerprints
 from .text import strip_accents
-from .firestore_stores import FirestoreConfig, FirestoreDeepDiveStore, FirestoreOverviewStore, FirestoreStateStore
 
 
 def _search_cafef_candidates(title: str, timeout_sec: int) -> list[str]:
@@ -102,18 +101,12 @@ class MacroBotApp:
     fetcher: ArticleFetcher
     analyzer: GeminiAnalyzer | None
     notifier: TelegramNotifier
-    state: StateStore
+    state: JsonFileStateStore
 
     @staticmethod
     def build_default() -> "MacroBotApp":
         cfg = BotConfig.from_env()
         analyzer = GeminiAnalyzer(api_key=cfg.gemini_api_key, model_name=cfg.genai_model) if cfg.gemini_api_key else None
-        state_store: StateStore
-        if cfg.firestore_enabled and cfg.firestore_project_id:
-            fs_cfg = FirestoreConfig(project_id=cfg.firestore_project_id, prefix=cfg.firestore_prefix)
-            state_store = FirestoreStateStore(fs_cfg)
-        else:
-            state_store = JsonFileStateStore(path=cfg.sent_news_file)
         return MacroBotApp(
             config=cfg,
             source=GoogleNewsRssSource(timeout_sec=cfg.article_fetch_timeout_sec),
@@ -125,7 +118,7 @@ class MacroBotApp:
             ),
             analyzer=analyzer,
             notifier=TelegramNotifier(token=cfg.telegram_token, chat_id=cfg.telegram_chat_id, dry_run=cfg.dry_run),
-            state=state_store,
+            state=JsonFileStateStore(path=cfg.sent_news_file),
         )
 
     def run(self) -> int:
@@ -149,10 +142,7 @@ class MacroBotApp:
         seen_fp: set[str] = set()
         per_stock_count: dict[str, int] = {}
 
-        if cfg.deep_dive_enabled and cfg.firestore_enabled and cfg.firestore_project_id:
-            deep_dive_store = FirestoreDeepDiveStore(FirestoreConfig(project_id=cfg.firestore_project_id, prefix=cfg.firestore_prefix))
-        else:
-            deep_dive_store = TelegramDeepDiveStore(cfg.deep_dive_store_file) if cfg.deep_dive_enabled else None
+        deep_dive_store = TelegramDeepDiveStore(cfg.deep_dive_store_file) if cfg.deep_dive_enabled else None
         deep_dive_update_store = (
             TelegramDeepDiveUpdateStateStore(cfg.deep_dive_update_state_file) if cfg.deep_dive_enabled else None
         )
@@ -172,10 +162,7 @@ class MacroBotApp:
             # Handle any pending Deep dive button clicks (from previous messages).
             deep_dive_proc.sync(notifier=self.notifier)
 
-        if cfg.overview_enabled and cfg.firestore_enabled and cfg.firestore_project_id:
-            overview_store = FirestoreOverviewStore(FirestoreConfig(project_id=cfg.firestore_project_id, prefix=cfg.firestore_prefix))
-        else:
-            overview_store = TelegramOverviewStore(cfg.overview_store_file) if cfg.overview_enabled else None
+        overview_store = TelegramOverviewStore(cfg.overview_store_file) if cfg.overview_enabled else None
         overview_update_store = (
             TelegramOverviewUpdateStateStore(cfg.overview_update_state_file) if cfg.overview_enabled else None
         )

@@ -152,7 +152,7 @@ class TelegramDeepDiveCallbackProcessor:
         token: str,
         chat_id: str,
         analyzer: GeminiAnalyzer | None,
-        deep_dive_store: Any,
+        deep_dive_store: TelegramDeepDiveStore,
         update_state_store: TelegramDeepDiveUpdateStateStore,
         timeout_sec: int = 20,
         max_age_days: int = 7,
@@ -205,28 +205,6 @@ class TelegramDeepDiveCallbackProcessor:
                 fp = data.split(":", 1)[1].strip()
                 if fp:
                     self._handle_deep_dive(fp=fp, notifier=notifier, callback_query=cb)
-
-    def handle_callback_query(self, callback_query: dict[str, Any], notifier: TelegramNotifier) -> None:
-        """
-        Realtime path for webhook-based deployments.
-        """
-        if not isinstance(callback_query, dict):
-            return
-        msg = callback_query.get("message") or {}
-        if not isinstance(msg, dict):
-            return
-        chat = msg.get("chat") or {}
-        chat_id = str((chat.get("id") if isinstance(chat, dict) else "") or "")
-        if not chat_id or chat_id != self.chat_id:
-            return
-        data = callback_query.get("data") or ""
-        if not isinstance(data, str):
-            return
-        data = data.strip()
-        if data.startswith("deep_dive:"):
-            fp = data.split(":", 1)[1].strip()
-            if fp:
-                self._handle_deep_dive(fp=fp, notifier=notifier, callback_query=callback_query)
 
     def _fetch_updates(self, offset: int | None) -> tuple[list[dict[str, Any]], int]:
         url = f"https://api.telegram.org/bot{self.token}/getUpdates"

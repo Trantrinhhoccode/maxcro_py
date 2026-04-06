@@ -56,10 +56,6 @@ class BotConfig:
     overview_update_state_file: str
     overview_max_age_days: int
     overview_max_items_per_symbol: int
-    firestore_enabled: bool
-    firestore_project_id: str
-    firestore_prefix: str
-    run_token: str
 
     @staticmethod
     def from_env() -> "BotConfig":
@@ -140,10 +136,6 @@ class BotConfig:
         )
         overview_max_age_days = _env_int("OVERVIEW_MAX_AGE_DAYS", 7)
         overview_max_items_per_symbol = _env_int("OVERVIEW_MAX_ITEMS_PER_SYMBOL", 8)
-        firestore_enabled = _env_bool("FIRESTORE_ENABLED", False)
-        firestore_project_id = os.getenv("FIRESTORE_PROJECT_ID", "").strip()
-        firestore_prefix = os.getenv("FIRESTORE_PREFIX", "macro_bot").strip() or "macro_bot"
-        run_token = os.getenv("RUN_TOKEN", "").strip()
 
         return BotConfig(
             gemini_api_key=gemini_api_key,
@@ -177,10 +169,6 @@ class BotConfig:
             overview_update_state_file=overview_update_state_file,
             overview_max_age_days=overview_max_age_days,
             overview_max_items_per_symbol=overview_max_items_per_symbol,
-            firestore_enabled=firestore_enabled,
-            firestore_project_id=firestore_project_id,
-            firestore_prefix=firestore_prefix,
-            run_token=run_token,
         )
 
 
