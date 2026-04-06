@@ -27,7 +27,6 @@ class OverviewArticle:
     final_url: str
     snippet: str
     category: str
-    analysis: str
     fp: str
 
 
@@ -86,7 +85,6 @@ class TelegramOverviewStore:
                     "final_url": a.final_url,
                     "snippet": a.snippet,
                     "category": a.category,
-                    "analysis": a.analysis,
                     "fp": a.fp,
                 }
                 for a in (sess.articles or [])
@@ -125,7 +123,6 @@ class TelegramOverviewStore:
                             final_url=str(it.get("final_url", "") or ""),
                             snippet=str(it.get("snippet", "") or ""),
                             category=str(it.get("category", "") or ""),
-                            analysis=str(it.get("analysis", "") or ""),
                             fp=str(it.get("fp", "") or ""),
                         )
                     )
@@ -224,8 +221,7 @@ def build_overview_session(articles: list[dict[str, Any]]) -> OverviewSession:
             final_url = str(it.get("final_url", "") or "").strip()
             snippet = str(it.get("snippet", "") or "").strip()
             fp = str(it.get("fp", "") or "").strip()
-            analysis = str(it.get("analysis", "") or "").strip()
-            cat = str(it.get("category", "") or "").strip() or classify_category(title, snippet)
+            cat = classify_category(title, snippet)
             if not sym or not title or not fp:
                 continue
             sess.articles.append(
@@ -236,7 +232,6 @@ def build_overview_session(articles: list[dict[str, Any]]) -> OverviewSession:
                     final_url=final_url,
                     snippet=snippet,
                     category=cat,
-                    analysis=analysis,
                     fp=fp,
                 )
             )
@@ -456,8 +451,7 @@ class TelegramOverviewCallbackProcessor:
                 f"🔔 {target.symbol}",
                 target.title,
                 (f"\nSnippet: {target.snippet[:400].strip()}" if target.snippet else ""),
-                (f"\n\n{target.analysis}".strip() if target.analysis else ""),
-                f"\n\nXem gốc: {target.final_url}",
+                f"\nXem gốc: {target.final_url}",
             ]
             text = "\n".join([ln for ln in body_lines if ln]).strip()
             reply_markup = {"inline_keyboard": [[{"text": "Deep dive", "callback_data": f"deep_dive:{target.fp}"}]]}

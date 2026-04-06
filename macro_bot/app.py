@@ -29,7 +29,6 @@ from .telegram_overview import (
     TelegramOverviewStore,
     TelegramOverviewUpdateStateStore,
     build_overview_session,
-    classify_category,
     render_overview,
 )
 from .watchlist import WatchlistStore
@@ -216,9 +215,6 @@ class MacroBotApp:
             cfg_stocks = list(cfg.stocks or [])
 
         overview_articles: list[dict] = []
-        per_symbol_cap = cfg.max_send_per_stock
-        if cfg.overview_enabled and cfg.overview_max_items_per_symbol and cfg.overview_max_items_per_symbol > 0:
-            per_symbol_cap = min(per_symbol_cap, cfg.overview_max_items_per_symbol) if per_symbol_cap > 0 else cfg.overview_max_items_per_symbol
         for stock_cfg in cfg_stocks:
             symbol = str(stock_cfg.get("symbol", "N/A") or "N/A").strip().upper()
             company = stock_cfg.get("company", "") or ""
@@ -233,14 +229,14 @@ class MacroBotApp:
             print(f"Queries: {queries}")
 
             for q in queries:
-                if per_symbol_cap > 0 and per_stock_count.get(symbol, 0) >= per_symbol_cap:
-                    print(f"Đã đạt giới hạn {per_symbol_cap} tin cho {symbol} trong 1 lần chạy.")
+                if per_stock_count.get(symbol, 0) >= cfg.max_send_per_stock:
+                    print(f"Đã đạt giới hạn {cfg.max_send_per_stock} tin cho {symbol} trong 1 lần chạy.")
                     break
                 print(f"Đang tìm: {q} ...")
                 items = self.source.fetch(q, max_items=cfg.scan_per_feed)
                 items = sorted(items, key=lambda x: x.published_at or datetime.min, reverse=True)
                 for item in items:
-                    if per_symbol_cap > 0 and per_stock_count.get(symbol, 0) >= per_symbol_cap:
+                    if per_stock_count.get(symbol, 0) >= cfg.max_send_per_stock:
                         break
                     if not is_within_days(item.published_at, cfg.lookback_days):
                         continue
@@ -386,24 +382,9 @@ class MacroBotApp:
                         extra_candidate_urls=extra_candidate_urls or None,
                     )
                     if cfg.overview_enabled:
-                        # In overview mode, prepare everything ahead of time:
-                        # classification + AI analysis text (if analyzer is available).
+                        # In overview mode, we don't push analysis per-article.
+                        # Collect payload for dashboard + optional deep dive later.
                         snippet_clean = strip_html(item.summary).strip()[:280] if item.summary else ""
-                        analysis = ""
-                        if self.analyzer is not None:
-                            try:
-                                analysis = self.analyzer.analyze(
-                                    symbol=symbol,
-                                    company=company,
-                                    title=item.title,
-                                    snippet_html=item.summary,
-                                    article_text=article_text,
-                                    source_url=final_url or item.link,
-                                )
-                                analysis = re.sub(r"[*_`#>]+", "", analysis or "").strip()
-                            except Exception:
-                                analysis = ""
-                        category = classify_category(item.title or "", snippet_clean)
                         overview_articles.append(
                             {
                                 "symbol": symbol,
@@ -411,8 +392,6 @@ class MacroBotApp:
                                 "title": item.title or "",
                                 "final_url": final_url or item.link or "",
                                 "snippet": snippet_clean,
-                                "category": category,
-                                "analysis": analysis,
                                 "fp": fp,
                                 "fp_url": fp_url,
                                 "fp_title_core": fp_title_core,
