@@ -51,11 +51,6 @@ class BotConfig:
     deep_dive_store_file: str
     deep_dive_update_state_file: str
     deep_dive_max_age_days: int
-    overview_enabled: bool
-    overview_store_file: str
-    overview_update_state_file: str
-    overview_max_age_days: int
-    overview_max_items_per_symbol: int
 
     @staticmethod
     def from_env() -> "BotConfig":
@@ -129,13 +124,6 @@ class BotConfig:
         deep_dive_store_file = os.getenv("DEEP_DIVE_STORE_FILE", "telegram_deep_dive.json").strip() or "telegram_deep_dive.json"
         deep_dive_update_state_file = os.getenv("DEEP_DIVE_UPDATE_STATE_FILE", "telegram_deep_dive_updates.json").strip() or "telegram_deep_dive_updates.json"
         deep_dive_max_age_days = _env_int("DEEP_DIVE_MAX_AGE_DAYS", 7)
-        overview_enabled = _env_bool("OVERVIEW_ENABLED", True)
-        overview_store_file = os.getenv("OVERVIEW_STORE_FILE", "telegram_overview.json").strip() or "telegram_overview.json"
-        overview_update_state_file = (
-            os.getenv("OVERVIEW_UPDATE_STATE_FILE", "telegram_overview_updates.json").strip() or "telegram_overview_updates.json"
-        )
-        overview_max_age_days = _env_int("OVERVIEW_MAX_AGE_DAYS", 7)
-        overview_max_items_per_symbol = _env_int("OVERVIEW_MAX_ITEMS_PER_SYMBOL", 8)
 
         return BotConfig(
             gemini_api_key=gemini_api_key,
@@ -164,11 +152,6 @@ class BotConfig:
             deep_dive_store_file=deep_dive_store_file,
             deep_dive_update_state_file=deep_dive_update_state_file,
             deep_dive_max_age_days=deep_dive_max_age_days,
-            overview_enabled=overview_enabled,
-            overview_store_file=overview_store_file,
-            overview_update_state_file=overview_update_state_file,
-            overview_max_age_days=overview_max_age_days,
-            overview_max_items_per_symbol=overview_max_items_per_symbol,
         )
 
 
