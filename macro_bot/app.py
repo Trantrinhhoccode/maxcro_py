@@ -24,6 +24,13 @@ from .telegram_deep_dive import (
     TelegramDeepDiveStore,
     TelegramDeepDiveUpdateStateStore,
 )
+from .telegram_overview import (
+    TelegramOverviewCallbackProcessor,
+    TelegramOverviewStore,
+    TelegramOverviewUpdateStateStore,
+    build_overview_session,
+    render_overview,
+)
 from .watchlist import WatchlistStore
 from .text import fingerprint, snippet_adds_value, strip_html
 from .text import fingerprint_by_url
@@ -120,7 +127,7 @@ class MacroBotApp:
             f"{datetime.now().strftime('%d/%m/%Y')} ---"
         )
 
-        if not self.analyzer:
+        if not self.analyzer and not cfg.overview_enabled:
             print("Thiếu GEMINI_API_KEY. Hãy set GEMINI_API_KEY để bật phân tích AI.")
             return 0
 
@@ -153,6 +160,26 @@ class MacroBotApp:
         if deep_dive_proc:
             # Handle any pending Deep dive button clicks (from previous messages).
             deep_dive_proc.sync(notifier=self.notifier)
+
+        overview_store = TelegramOverviewStore(cfg.overview_store_file) if cfg.overview_enabled else None
+        overview_update_store = (
+            TelegramOverviewUpdateStateStore(cfg.overview_update_state_file) if cfg.overview_enabled else None
+        )
+        overview_proc = (
+            TelegramOverviewCallbackProcessor(
+                token=cfg.telegram_token,
+                chat_id=cfg.telegram_chat_id,
+                store=overview_store,  # type: ignore[arg-type]
+                update_state_store=overview_update_store,  # type: ignore[arg-type]
+                timeout_sec=cfg.article_fetch_timeout_sec,
+                max_age_days=cfg.overview_max_age_days,
+            )
+            if cfg.overview_enabled
+            else None
+        )
+        if overview_proc:
+            # Handle pending overview toggle clicks (from previous overview messages).
+            overview_proc.sync()
 
         # Telegram commands: allow controlling watchlist via messages like "VNM on/off".
         watch_state = None
@@ -187,6 +214,7 @@ class MacroBotApp:
         else:
             cfg_stocks = list(cfg.stocks or [])
 
+        overview_articles: list[dict] = []
         for stock_cfg in cfg_stocks:
             symbol = str(stock_cfg.get("symbol", "N/A") or "N/A").strip().upper()
             company = stock_cfg.get("company", "") or ""
@@ -353,6 +381,33 @@ class MacroBotApp:
                         relevance_text=relevance_text,
                         extra_candidate_urls=extra_candidate_urls or None,
                     )
+                    if cfg.overview_enabled:
+                        # In overview mode, we don't push analysis per-article.
+                        # Collect payload for dashboard + optional deep dive later.
+                        snippet_clean = strip_html(item.summary).strip()[:280] if item.summary else ""
+                        overview_articles.append(
+                            {
+                                "symbol": symbol,
+                                "company": company,
+                                "title": item.title or "",
+                                "final_url": final_url or item.link or "",
+                                "snippet": snippet_clean,
+                                "fp": fp,
+                                "fp_url": fp_url,
+                                "fp_title_core": fp_title_core,
+                                "fp_title_sig": fp_title_sig,
+                                "fp_event": fp_event,
+                                "fp_event_combos": fp_event_combos or [],
+                                "article_text": article_text or "",
+                            }
+                        )
+                        # Stop scanning this symbol once we reached per-stock cap.
+                        per_stock_count[symbol] = per_stock_count.get(symbol, 0) + 1
+                        count += 1
+                        if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:
+                            break
+                        continue
+
                     if not article_text:
                         msg = "\n".join(
                             [
@@ -498,6 +553,65 @@ class MacroBotApp:
 
                 if cfg.max_send_per_run > 0 and count >= cfg.max_send_per_run:
                     break
+
+        if cfg.overview_enabled:
+            if not overview_articles:
+                msg = f"ℹ️ Không có tin mới (trong {cfg.recent_days} ngày gần nhất) — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                print(msg)
+                if cfg.always_notify_no_news:
+                    self.notifier.send_markdown(msg)
+                return 0
+
+            # Build + persist session for interactive toggles.
+            sess = build_overview_session(overview_articles)
+            if overview_store is not None:
+                try:
+                    overview_store.save_session(sess)
+                except Exception:
+                    pass
+
+            text, reply_markup = render_overview(sess)
+            sent_ok = False
+            try:
+                sent_ok = self.notifier.send_markdown(text, reply_markup=reply_markup)
+            except Exception as e:
+                print(f"Lỗi gửi Telegram: {e}")
+
+            if sent_ok:
+                now_iso = datetime.now().isoformat()
+                for it in overview_articles:
+                    # Mark all included items as "sent" so we don't show again next run.
+                    try:
+                        self.state.save_fingerprint(str(it.get("fp", "") or ""), now_iso)
+                        self.state.save_fingerprint(str(it.get("fp_url", "") or ""), now_iso)
+                        self.state.save_fingerprint(str(it.get("fp_title_core", "") or ""), now_iso)
+                        self.state.save_fingerprint(str(it.get("fp_title_sig", "") or ""), now_iso)
+                        self.state.save_fingerprint(str(it.get("fp_event", "") or ""), now_iso)
+                        for k in (it.get("fp_event_combos") or []):
+                            self.state.save_fingerprint(str(k or ""), now_iso)
+                    except Exception:
+                        pass
+
+                    # Keep deep dive payload available.
+                    if deep_dive_store is not None:
+                        try:
+                            deep_dive_store.save_item(
+                                DeepDiveItem(
+                                    symbol=str(it.get("symbol", "") or ""),
+                                    title=str(it.get("title", "") or ""),
+                                    final_url=str(it.get("final_url", "") or ""),
+                                    snippet_html=str(it.get("snippet", "") or ""),
+                                    article_text=str(it.get("article_text", "") or ""),
+                                    company=str(it.get("company", "") or ""),
+                                    fp=str(it.get("fp", "") or ""),
+                                    saved_at_iso=now_iso,
+                                )
+                            )
+                        except Exception:
+                            pass
+
+            print(f"Đã gửi overview: {len(overview_articles)} tin.")
+            return 0
 
         if count == 0:
             msg = f"ℹ️ Không có tin mới (trong {cfg.recent_days} ngày gần nhất) — {datetime.now().strftime('%d/%m/%Y %H:%M')}"
